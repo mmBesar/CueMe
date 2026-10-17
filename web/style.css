@@ -2,6 +2,16 @@
 html, body { margin: 0; height: 100%; background: #000; color: #e8eefc; overflow: hidden;
   font-family: "Noto Sans Arabic", "Noto Naskh Arabic", system-ui, -apple-system, "Segoe UI", Roboto, Tahoma, Arial, sans-serif; }
 #app { position: absolute; top: 0; right: 0; bottom: 0; left: 0; }
+/* Arabic fonts that travel with the app, so Arabic looks the same on every system
+   (Noto Sans Arabic / Noto Naskh Arabic, SIL Open Font License, see web/fonts) */
+@font-face { font-family: "CueMe Sans Arabic"; font-weight: 400; font-style: normal; src: url(fonts/noto-sans-arabic-arabic-400-normal.woff2) format("woff2");
+  unicode-range: U+0600-06FF, U+0750-077F, U+0870-088E, U+0890-0891, U+0897-08E1, U+08E3-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE70-FE74, U+FE76-FEFC; }
+@font-face { font-family: "CueMe Sans Arabic"; font-weight: 700; font-style: normal; src: url(fonts/noto-sans-arabic-arabic-700-normal.woff2) format("woff2");
+  unicode-range: U+0600-06FF, U+0750-077F, U+0870-088E, U+0890-0891, U+0897-08E1, U+08E3-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE70-FE74, U+FE76-FEFC; }
+@font-face { font-family: "CueMe Naskh"; font-weight: 400; font-style: normal; src: url(fonts/noto-naskh-arabic-arabic-400-normal.woff2) format("woff2");
+  unicode-range: U+0600-06FF, U+0750-077F, U+0870-088E, U+0890-0891, U+0897-08E1, U+08E3-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE70-FE74, U+FE76-FEFC; }
+@font-face { font-family: "CueMe Naskh"; font-weight: 700; font-style: normal; src: url(fonts/noto-naskh-arabic-arabic-700-normal.woff2) format("woff2");
+  unicode-range: U+0600-06FF, U+0750-077F, U+0870-088E, U+0890-0891, U+0897-08E1, U+08E3-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE70-FE74, U+FE76-FEFC; }
 button, input, select, textarea { font: inherit; color: inherit; }
 button { background: #1b2740; border: 1px solid #33425e; border-radius: 10px; padding: 10px 14px; cursor: pointer; min-height: 44px; }
 button:hover { background: #24345a; }
@@ -32,7 +42,7 @@ h1.logo { font-size: 34px; margin: 18px 0 4px; letter-spacing: .5px; }
 .peer { display: block; width: 100%; text-align: start; margin: 4px 0; }
 
 /* ---------- display ---------- */
-#stage { position: absolute; top: 0; right: 0; bottom: 0; left: 0; overflow: hidden; }
+#stage { touch-action: none; -webkit-user-select: none; user-select: none; position: absolute; top: 0; right: 0; bottom: 0; left: 0; overflow: hidden; }
 #flip { position: absolute; top: 0; right: 0; bottom: 0; left: 0; overflow: hidden; }
 #content { position: absolute; left: 50%; top: 0; will-change: transform; text-align: start; }
 #fade { position: absolute; top: 0; right: 0; bottom: 0; left: 0; pointer-events: none; }
@@ -104,7 +114,13 @@ h1.logo { font-size: 34px; margin: 18px 0 4px; letter-spacing: .5px; }
 #remote .tabbody { padding-top: 6px; }
 [dir=rtl] #menubtn { left: auto; right: 10px; }
 [dir=rtl] #panel { left: auto; right: 0; border-right: 0; border-left: 1px solid #25324d; }
-@media (max-width: 520px) { #panel { width: 100%; } }
+/* Portrait phones: the menu is a bottom sheet, so the script stays visible above it */
+@media (max-width: 520px), (orientation: portrait) and (max-width: 900px) {
+  #panel { top: auto; left: 0; right: 0; bottom: 0; width: 100%; height: 50%; max-width: none;
+    border-right: 0; border-top: 1px solid #25324d; border-radius: 14px 14px 0 0; }
+  [dir=rtl] #panel { left: 0; right: 0; border-left: 0; }
+  #panel.full { height: auto; border-radius: 0; border-top: 0; }
+}
 
 /* outline list + QR scanner overlay */
 .olink { display: block; text-align: start; margin-top: 6px; }
@@ -127,8 +143,8 @@ h1.logo { font-size: 34px; margin: 18px 0 4px; letter-spacing: .5px; }
 #transport .ctl { margin: 6px 0; }
 
 /* clean mode (fullscreen or "hide controls"): only the script and one faint dot */
-#fab { display: none; position: absolute; bottom: 10px; right: 10px; z-index: 7; width: 44px; height: 44px; min-height: 0; padding: 0;
-  border-radius: 50%; font-size: 22px; line-height: 1; opacity: .18; }
+#fab { display: none; position: absolute; bottom: 10px; right: 10px; z-index: 7; width: 48px; height: 48px; min-height: 0; padding: 0;
+  border-radius: 50%; font-size: 24px; line-height: 1; opacity: .4; }
 #fab:hover, #fab:active { opacity: .9; }
 .clean #fab { display: block; }
 .clean #menubtn { display: none; }
@@ -137,3 +153,13 @@ h1.logo { font-size: 34px; margin: 18px 0 4px; letter-spacing: .5px; }
 
 /* links in a script are text only: tapping one must never navigate the prompter away */
 .md a { pointer-events: none; }
+
+/* keyboard help */
+.help { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 60; background: rgba(0,0,0,.82); overflow: auto; padding: 16px; }
+.help .card { background: #1e2030; border-radius: 14px; padding: 8px 18px 18px; }
+.help table { width: 100%; border-collapse: collapse; }
+.help td { padding: 4px 6px; border-bottom: 1px solid rgba(127,127,127,.25); vertical-align: top; }
+.help td:first-child { white-space: nowrap; font-family: ui-monospace, Menlo, Consolas, monospace; }
+select.fontsel { width: 100%; }
+/* the dot must be findable on any background */
+#fab { background: rgba(150,150,170,.55) !important; color: #fff !important; border: 1px solid rgba(255,255,255,.55) !important; }

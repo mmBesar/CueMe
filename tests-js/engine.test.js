@@ -98,3 +98,23 @@ test('eta and speed conversion', () => {
   e.speed = 0; assert.strictEqual(e.eta(), null);
   assert.strictEqual(Engine.speedToPx(60, 50, 1.5), 75);
 });
+
+test('drag: nudge moves instantly and held freezes everything else', () => {
+  const e = new Engine(); e.setMax(1000); e.speed = 100; e.play();
+  e.held = true;
+  e.nudge(300);
+  assert.equal(e.pos, 300);
+  assert.equal(e.step(0.05), false, 'nothing else moves while held');
+  e.nudge(-9999); assert.equal(e.pos, 0);
+  e.nudge(99999); assert.equal(e.pos, 1000);
+  e.held = false;
+  assert.equal(e.playing, true, 'auto-scroll resumes after release');
+});
+
+test('wheel/fling: glideBy adds up and clamps', () => {
+  const e = new Engine(); e.setMax(1000);
+  e.glideBy(100); e.glideBy(100);
+  assert.equal(e.target, 200);
+  e.glideBy(5000); assert.equal(e.target, 1000);
+  e.glideBy(-5000); assert.equal(e.target, 0);
+});

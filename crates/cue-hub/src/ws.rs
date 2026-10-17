@@ -203,6 +203,8 @@ async fn session(socket: WebSocket, sh: Arc<Shared>) {
             _ = ping.tick() => {
                 if last_heard.elapsed() > std::time::Duration::from_secs(50) { break; } // half-open connection
                 if sink.send(Message::Ping(Vec::new().into())).await.is_err() { break; }
+                // browsers hide protocol pings from scripts, so also send one the page can see
+                if sink.send(Message::Text(r#"{"t":"ping"}"#.into())).await.is_err() { break; }
             }
             outgoing = rx.recv() => {
                 match outgoing {

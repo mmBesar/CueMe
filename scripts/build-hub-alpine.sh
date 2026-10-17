@@ -10,4 +10,5 @@ HOST="$(rustc -vV | sed -n 's/^host: //p')"
 RUSTFLAGS="-C target-feature=+crt-static" cargo build --release -p cue-hub --target "$HOST" --target-dir /w/target/alpine
 mkdir -p /w/target/alpine-out
 cp "/w/target/alpine/$HOST/release/cueme-serve" /w/target/alpine-out/cueme-serve
+chown "${1:-0}:${2:-0}" /w/target   # the folder itself too: the next step creates things in it
 chown -R "${1:-0}:${2:-0}" /w/target/alpine /w/target/alpine-out

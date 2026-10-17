@@ -16,6 +16,7 @@
     this.maxSeekV = 2400;  // px / second cap for short seeks (calm, readable glide)
     this.farRate = 5;      // long seeks: cover at most this fraction of the remaining distance per second
     this.ended = false;
+    this.held = false;     // a finger / mouse is dragging the text: nothing else moves it
   }
 
   Engine.prototype.setMax = function (max) {
@@ -39,6 +40,18 @@
     this.target = null;
   };
 
+  /** Move by px (drag); instant, cancels any glide. */
+  Engine.prototype.nudge = function (px) {
+    this.target = null;
+    this.pos = Math.min(this.max, Math.max(0, this.pos + px));
+  };
+
+  /** Glide by px from where we are heading (mouse wheel, fling). */
+  Engine.prototype.glideBy = function (px) {
+    var base = this.target !== null ? this.target : this.pos;
+    this.target = Math.min(this.max, Math.max(0, base + px));
+  };
+
   Engine.prototype.play = function () { this.ended = false; this.playing = true; };
   Engine.prototype.pause = function () { this.playing = false; };
 
@@ -53,6 +66,7 @@
     if (!(dt > 0)) return false;
     if (dt > 0.1) dt = 0.1; // tab was hidden / long frame: never leap ahead
     var before = this.pos;
+    if (this.held) return false;
 
     if (this.target !== null) {
       var d = this.target - this.pos;

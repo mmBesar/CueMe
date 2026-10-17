@@ -65,6 +65,7 @@ jobs:
         if: matrix.arch == 'riscv64'
         run: |
           docker run --rm -v "$PWD":/w -w /w alpine:edge sh scripts/build-hub-alpine.sh "$(id -u)" "$(id -g)"
+          sudo chown -R "$(id -u):$(id -g)" target 2>/dev/null || true
           mkdir -p target/${{ matrix.target }}/release
           cp target/alpine-out/cueme-serve target/${{ matrix.target }}/release/cueme-serve
           (file target/${{ matrix.target }}/release/cueme-serve || true)
@@ -266,9 +267,9 @@ jobs:
           tags: ${{ env.IMAGE }}:${{ github.sha }}-${{ matrix.arch }}
       - name: Smoke test the image we just pushed
         run: |
-          docker run -d --name t -p 7878:7878 -e CUEME_PIN=SMOKETEST -e CUEME_NO_DISCOVERY=1 "$IMAGE:${GITHUB_SHA}-${{ matrix.arch }}"
+          docker run -d --name cueme-smoke -p 7878:7878 -e CUEME_PIN=SMOKETEST -e CUEME_NO_DISCOVERY=1 "$IMAGE:${GITHUB_SHA}-${{ matrix.arch }}"
           for i in $(seq 1 20); do curl -fsS http://127.0.0.1:7878/api/info && exit 0; sleep 1; done
-          docker logs t
+          docker logs cueme-smoke
           exit 1
 
   docker-manifest:

@@ -80,6 +80,7 @@ pub fn router(sh: S) -> Router {
         .route("/api/connect", get(connect))
         .route("/api/discover", get(discover))
         .route("/api/native/fullscreen", post(native_fullscreen))
+        .route("/api/native/quit", post(native_quit))
         .route("/api/qr.svg", get(qr))
         .route("/api/library", get(lib_list))
         .route(
@@ -163,6 +164,28 @@ async fn native_fullscreen(
     }
     match &sh.native {
         Some(n) => Json(json!({ "fullscreen": n.toggle_fullscreen() })).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+/// Close the desktop app (same rules as fullscreen: PIN + this machine only).
+async fn native_quit(
+    State(sh): State<S>,
+    ConnectInfo(ip): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Query(q): Query<PinQ>,
+) -> Response {
+    if let Err(r) = auth(&sh, ip, &headers, &q) {
+        return r;
+    }
+    if !ip.ip().is_loopback() {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    match &sh.native {
+        Some(n) => {
+            n.quit();
+            Json(json!({ "quit": true })).into_response()
+        }
         None => StatusCode::NOT_FOUND.into_response(),
     }
 }

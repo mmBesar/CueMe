@@ -31,6 +31,8 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub trait Native: Send + Sync {
     /// Toggle the app window's fullscreen. Returns the new state.
     fn toggle_fullscreen(&self) -> bool;
+    /// Close the app (desktop). Default: nothing.
+    fn quit(&self) {}
 }
 
 #[derive(Clone)]
@@ -358,9 +360,36 @@ fn load_session(dir: &Path) -> Session {
         })
 }
 
+/// Open the script folder and PROVE it is writable (some phones refuse writes to the
+/// shared-storage folder). If not, fall back to a folder inside the app's own data, so
+/// saving always works; the real path is shown in the app.
+fn open_library(cfg: &Config) -> std::io::Result<(Library, PathBuf)> {
+    fn writable(dir: &Path) -> bool {
+        if std::fs::create_dir_all(dir).is_err() {
+            return false;
+        }
+        let probe = dir.join(".cueme-write-test");
+        let ok = std::fs::write(&probe, b"x").is_ok();
+        let _ = std::fs::remove_file(&probe);
+        ok
+    }
+    let mut dir = cfg.library_dir.clone();
+    if !writable(&dir) {
+        let fallback = cfg.data_dir.join("scripts");
+        eprintln!(
+            "cueme: cannot write to {}; using {}",
+            dir.display(),
+            fallback.display()
+        );
+        dir = fallback;
+    }
+    let lib = Library::open(&dir).map_err(|e| std::io::Error::other(e.to_string()))?;
+    Ok((lib, dir))
+}
+
 pub async fn start(cfg: Config) -> std::io::Result<Hub> {
     std::fs::create_dir_all(&cfg.data_dir)?;
-    let lib = Library::open(&cfg.library_dir).map_err(|e| std::io::Error::other(e.to_string()))?;
+    let (lib, library_dir) = open_library(&cfg)?;
     let pin = load_or_create_pin(&cfg.data_dir, cfg.pin.clone());
     let session = load_session(&cfg.data_dir);
     let html = markdown::render(&session.text);
@@ -397,7 +426,7 @@ pub async fn start(cfg: Config) -> std::io::Result<Hub> {
         fails: Mutex::new(HashMap::new()),
         dirty: AtomicBool::new(false),
         data_dir: cfg.data_dir.clone(),
-        library_dir: cfg.library_dir.clone(),
+        library_dir: library_dir.clone(),
         found: found.clone(),
         native: cfg.native.clone(),
     });

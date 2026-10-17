@@ -24,7 +24,7 @@ Grab them from the **Releases** page.
 
 Every download is listed with its checksum in `SHA256SUMS.txt`.
 
-**Linux notes.** The desktop builds are made on Ubuntu 22.04, so they run on Debian 12, Ubuntu 22.04+, Fedora and newer. The plain tarball (and the `.deb`) need the system packages `libwebkit2gtk-4.1-0` and `libgtk-3-0`; the AppImage carries its own. Install the `.deb` (`sudo apt install ./cueme_*.deb`) to get the menu entry and the icon: window managers such as Hyprland find the icon through `cueme.desktop`.
+**Linux notes.** The desktop builds are made on Ubuntu 22.04, so they run on Debian 12, Ubuntu 22.04+, Fedora and newer. The plain tarball (and the `.deb`) need the system packages `libwebkit2gtk-4.1-0` and `libgtk-3-0`; the AppImage carries its own. Wayland shells (Hyprland, Plasma, Noctalia...) find the window icon through `cueme.desktop`. The `.deb` installs it. The AppImage and the plain binary create it themselves in your own `~/.local/share/applications` and `~/.local/share/icons` on first start (never as root; set `CUEME_NO_INTEGRATION=1` to prevent it; delete those two `cueme` files to undo it).
 
 ## Using it
 
@@ -34,7 +34,10 @@ Every download is listed with its checksum in `SHA256SUMS.txt`.
 3. **Browser remote**: any phone or computer browser can open the address shown on the display and act as a remote, with nothing installed.
 
 ### Fullscreen without any buttons
-Fullscreen (the ⛶ button, `Alt+F`, or from the remote) shows **only the script**. Stray taps do nothing. A tiny see-through dot sits in the corner: tap it and the control bar comes back for a few seconds. **Hide controls** in the bar does the same without fullscreen; press the same button (now "Show controls") or `C` to bring everything back.
+Fullscreen (the ⛶ button, `F`, `F11`, or from the remote) shows **only the script**. Stray taps do nothing. A small see-through dot sits in the corner: tap it and the control bar comes back for a few seconds. Outside fullscreen, a single tap on the screen shows or hides the bar. `Esc` leaves fullscreen.
+
+### Scrolling by hand
+Drag the text with a finger or the mouse (the auto-scroll waits while you hold, then carries on; a quick flick glides on), or use the mouse wheel. On the display, tap-drag works in portrait and landscape; the menu opens as a bottom sheet in portrait so the script stays visible above it.
 
 ### Connecting a remote
 Open the **Connect** tab in the display's menu: it shows a QR code, the address and a **PIN (up to 3 digits)**.
@@ -60,20 +63,29 @@ Write or paste text in the **Script** tab (Markdown). **Send to display** shows 
 | Headless hub / Docker | `--library DIR` (default `~/.local/share/cueme/scripts`) / the `/scripts` volume |
 
 ### Controls
-Text size, speed (lines per minute), text width, dim, cue-line position, mirror (flip X), flip Y, bold, colours, focus band, countdown, fullscreen on play, and **Use theme colours for the script**.
+Text size, speed (lines per minute), text width, dim, cue-line position, mirror (flip X), flip Y, bold, colours, focus band, countdown, fullscreen on play, **Use theme colours for the script**, and the **script font** (Noto Sans Arabic or Noto Naskh Arabic, both bundled with the app, or the system font; this is chosen per device).
 
-| Key (on the display) | Action |
+Press `?` (or `F1`) in the app for this list.
+
+| Key | Action |
 |---|---|
-| Space | play / pause |
+| Space / K | play / pause |
 | Up / Down | scroll while held |
-| Left / Right | slower / faster |
-| Alt + Up / Down | text size |
+| Left / Right  or  `,` `.` | slower / faster |
+| `+` / `-`  or  Alt + Up / Down | text size |
 | `[` / `]` | text width |
-| Alt + F | fullscreen |
-| Alt + E | edit script |
-| M | menu |
-| C | hide / show controls |
-| Home, PageUp, PageDown | top, previous / next heading |
+| PageUp / PageDown | previous / next heading |
+| `1`-`9` | jump to heading number N |
+| Home / T,  End | top, bottom |
+| R | stop and go to the top |
+| F / F11 / Alt+F | fullscreen (from a remote: `F` = the display, `Alt+F` = this window) |
+| Esc | close the menu, then leave fullscreen |
+| C | show / hide the control bar |
+| M, O, E | menu, outline, edit script |
+| X, Y, B, D | mirror, flip vertically, bold, focus band |
+| Ctrl+Q | quit (desktop app) |
+
+Shortcuts also work on an Arabic keyboard layout (they follow the physical key).
 
 ## Android: installing and signing (no coding needed)
 Android only installs apps that are **signed**. The release build always signs the APKs, but with which key?
@@ -129,6 +141,7 @@ Releases: `git tag v0.1.0 && git push --tags`; `.github/workflows/release.yml` b
 
 ## Known limits
 - **Android 6 uses the phone's system WebView**, updated through Google Play. If the UI looks broken on an old phone, update "Android System WebView". QR scanning needs a WebView recent enough for the camera; if not, the button is hidden and the nearby list / typing still work.
+- If Arabic dots or marks look misplaced on some Linux system, pick another script font in the Controls tab: the bundled fonts exist exactly to make Arabic look the same everywhere.
 - The Android app stops serving when Android closes it in the background. Keep it open while prompting (the screen is kept awake).
 - In a plain browser, fullscreen from the remote needs a tap on the display first (browsers insist). The Android and Linux apps do it directly.
 - riscv64: the AppImage is a thin one (needs `libwebkit2gtk-4.1` installed) and is only published if an AppImage runtime exists for riscv64.

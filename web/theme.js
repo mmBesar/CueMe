@@ -66,6 +66,7 @@
       '.md h1,.md h2,.md h3,.md h4,.md h5,.md h6{color:' + A + '}',
       '.md blockquote{border-color:' + A + '}',
       '.scan{background:' + c('crust') + '}.scan video{background:' + c('mantle') + '}',
+      '.help .card{background:' + c('mantle') + ';color:' + c('text') + '}',
       '.sw{border-color:' + c('surface2') + '}.sw.on{border-color:' + c('text') + '}',
       '.fl.on{border-color:' + A + ';background:' + c('surface1') + '}'
     ].join('\n');

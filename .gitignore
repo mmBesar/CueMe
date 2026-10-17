@@ -10,7 +10,7 @@
 # native libraries are built by scripts/build-android.sh
 /android/app/src/main/jniLibs/
 # tools
-node_modules/
+node_modules
 *.log
 .DS_Store
 

@@ -74,7 +74,15 @@
   var KEYCODES = { 32: ' ', 38: 'ArrowUp', 40: 'ArrowDown', 37: 'ArrowLeft', 39: 'ArrowRight', 27: 'Escape',
     36: 'Home', 33: 'PageUp', 34: 'PageDown', 219: '[', 221: ']', 70: 'f', 69: 'e', 77: 'm' };
   /* old WebViews have no KeyboardEvent.key */
-  function keyName(e) { return e.key || KEYCODES[e.keyCode] || ''; }
+  function keyName(e) {
+    var k = e.key || KEYCODES[e.keyCode] || '';
+    // Arabic (or any non-Latin) layout: the shortcut letters follow the physical key
+    if (k.length === 1 && k.charCodeAt(0) > 127 && e.code) {
+      var m = /^Key([A-Z])$/.exec(e.code) || /^Digit([0-9])$/.exec(e.code);
+      if (m) return m[1].toLowerCase();
+    }
+    return k;
+  }
 
   function isTyping(e) {
     var n = e.target;
@@ -103,7 +111,7 @@
   var S = {
     settings: copy(DEFAULTS), text: '', html: '', name: '', rev: 0,
     pos: 0, playing: false, eta: null, displays: 0, remotes: 0, library: [], connected: false,
-    hasNative: false, libraryPath: ''
+    hasNative: false, libraryPath: '', errAt: 0, errMsg: ''
   };
   function copy(o) { var r = {}; for (var k in o) r[k] = o[k]; return r; }
 
@@ -120,6 +128,14 @@
     this.closed = false;
     this.everOpen = false;
     this.timer = null;
+    this.lastRx = now();
+    this.sawPing = false;
+    var me = this;
+    // the hub sends a heartbeat every 15 s; silence for 30 s means the connection died quietly
+    // (phone Wi-Fi power saving does this): drop it and reconnect instead of sending into the void
+    this.watch = setInterval(function () {
+      if (me.sawPing && me.ws && me.ws.readyState === 1 && now() - me.lastRx > 30000) { try { me.ws.close(); } catch (e) {} }
+    }, 5000);
     this.open();
   }
   Link.prototype.open = function () {
@@ -133,13 +149,15 @@
     self.ws = ws;
     var opened = false;
     ws.onopen = function () {
-      opened = true; self.everOpen = true; self.retry = 0;
+      opened = true; self.everOpen = true; self.retry = 0; self.lastRx = now();
       self.send({ t: 'hello', role: self.role });
       self.h.status(true);
     };
     ws.onmessage = function (ev) {
       var m;
       try { m = JSON.parse(ev.data); } catch (e) { return; }
+      self.lastRx = now();
+      if (m.t === 'ping') { self.sawPing = true; return; }
       self.h.msg(m);
     };
     ws.onclose = function () {
@@ -163,10 +181,14 @@
     self.timer = setTimeout(function () { self.open(); }, wait);
   };
   Link.prototype.send = function (obj) {
-    if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(obj));
+    if (this.ws && this.ws.readyState === 1) {
+      try { this.ws.send(JSON.stringify(obj)); return true; } catch (e) { return false; }
+    }
+    return false;
   };
   Link.prototype.close = function () {
     this.closed = true;
+    clearInterval(this.watch);
     clearTimeout(this.timer);
     if (this.ws) { try { this.ws.close(); } catch (e) {} }
   };
@@ -215,15 +237,68 @@
         break;
       case 'library':
         S.library = m.files || [];
+        S.libMsgs = (S.libMsgs || 0) + 1;
         if (view && view.panel) view.panel.refreshLibrary();
         break;
       case 'rendered': if (view && view.panel) view.panel.onRendered(m.html); break;
-      case 'error': toast(m.msg || 'error'); break;
+      case 'error': S.errAt = now(); S.errMsg = m.msg || 'error'; toast(S.errMsg); break;
       default: break;
     }
   }
 
-  var toastTimer = null;
+  /* Send the script and CHECK it arrived (the hub echoes the new text back to everyone);
+     retry a couple of times, because a phone on Wi-Fi sometimes loses the first message. */
+  function sendTextConfirmed(text, name, done) {
+    // The hub answers every accepted text with a new state (rev changes). Send once; only if
+    // nothing at all came back after 6 s, send one more time (a lost first message on flaky
+    // Wi-Fi). Never resend sooner: each text message rewinds the display to the top.
+    var rev0 = S.rev, tries = 0;
+    function finish(ok, msg) { toast(msg); if (done) done(ok); }
+    function attempt() {
+      tries++;
+      if (!link || !link.send({ t: 'text', text: text, name: name })) {
+        if (tries < 6) { setTimeout(attempt, 1000); return; }
+        finish(false, t('offline')); return;
+      }
+      var started = now();
+      (function wait() {
+        if (S.rev !== rev0 || S.text === text) { finish(true, t('sent')); return; }
+        if (now() - started < 6000) { setTimeout(wait, 300); return; }
+        if (tries < 2) attempt(); else finish(false, t('no_answer'));
+      }());
+    }
+    attempt();
+  }
+
+    function hasFile(n) {
+    var want = [n.toLowerCase(), (n + '.md').toLowerCase()], lib = S.library || [];
+    for (var i = 0; i < lib.length; i++) if (want.indexOf(String(lib[i]).toLowerCase()) >= 0) return true;
+    return false;
+  }
+
+  /* Save and say truthfully what happened: "saved to <folder>" only once the hub lists the file */
+  function saveConfirmed(name, text) {
+    // The hub re-announces the library after every successful save, so a NEW library message
+    // that lists the file is the proof. An error message from the hub is shown as it comes.
+    var tries = 0, t0 = now(), l0 = S.libMsgs || 0;
+    function attempt() {
+      tries++;
+      if (!link || !link.send({ t: 'save', name: name, text: text })) {
+        if (tries < 6) { setTimeout(attempt, 1000); return; }
+        toast(t('offline')); return;
+      }
+      var started = now();
+      (function wait() {
+        if (S.errAt > t0) return; // the hub told us why (toast already shown)
+        if ((S.libMsgs || 0) > l0 && hasFile(name)) { toast(t('saved') + (S.libraryPath ? ' - ' + S.libraryPath : '')); return; }
+        if (now() - started < 5000) { setTimeout(wait, 300); return; }
+        if (tries < 2) attempt(); else toast(t('save_fail'));
+      }());
+    }
+    attempt();
+  }
+
+    var toastTimer = null;
   function toast(msg) {
     var n = document.getElementById('toast');
     if (!n) { n = el('div', { id: 'toast' }); document.body.appendChild(n); }
@@ -251,7 +326,7 @@
     // 2) Desktop app: the window belongs to this machine's hub, ask it (works from a remote too).
     if (S.hasNative && link) {
       xhr('POST', link.target.host, '/api/native/fullscreen', link.target.pin, '', function (code, body) {
-        if (code !== 200) return;
+        if (code !== 200) { S.hasNative = false; toast(t('fs_tap')); return; }
         try { setFsClass(!!JSON.parse(body).fullscreen); } catch (e) {}
       });
       return;
@@ -300,6 +375,52 @@
     } catch (e) {}
     return out;
   }
+
+  /* ------------------------------------------------------------ app helpers: quit, key help */
+  function quitApp() {
+    if (S.hasNative && link) {
+      xhr('POST', link.target.host, '/api/native/quit', link.target.pin, '', function (code) { if (code !== 200) toast(t('quit_no')); });
+    } else {
+      try { window.close(); } catch (e) {}
+      toast(t('quit_no'));
+    }
+  }
+
+  function toggleSwitch(k) {
+    sendSet(k, !S.settings[k]);
+    if (view && view.onSettings) view.onSettings([k]);
+    if (view && view.panel) view.panel.refresh();
+  }
+
+  var KEYHELP = [
+    ['Space / K', 'k_play'], ['\u2191 \u2193', 'k_scroll'], ['\u2190 \u2192  or  , .', 'k_speed'], ['+ / -   or   Alt+\u2191\u2193', 'k_size'],
+    ['[ ]', 'k_width'], ['PageUp / PageDown', 'k_heading'], ['1 - 9', 'k_nth'], ['Home / T', 'k_top'], ['End', 'k_end'], ['R', 'k_restart'],
+    ['F / F11 / Alt+F', 'k_full'], ['Esc', 'k_esc'], ['C', 'k_bar'], ['M', 'k_menu'], ['O', 'k_outline'], ['E', 'k_edit'],
+    ['X / Y / B / D', 'k_flags'], ['Ctrl+Q', 'k_quit'], ['? / F1', 'k_help']
+  ];
+  function showHelp() {
+    var old = document.getElementById('help');
+    if (old) { old.parentNode.removeChild(old); return; }
+    var rows = el('table');
+    KEYHELP.forEach(function (r) {
+      rows.appendChild(el('tr', {}, [el('td', { text: r[0], dir: 'ltr' }), el('td', { text: t(r[1]) })]));
+    });
+    var box = el('div', { class: 'help', id: 'help', onclick: function () { showHelp(); } }, el('div', { class: 'card' }, [
+      el('h2', { text: t('keys_title') }), rows,
+      el('p', { class: 'muted', text: t('k_touch') }),
+      el('button', { text: t('hide'), onclick: function () { showHelp(); } })
+    ]));
+    document.body.appendChild(box);
+  }
+
+  /* ------------------------------------------------------------ script font (per device) */
+  var FONTS = {
+    sans: { label: 'Noto Sans Arabic', css: '"CueMe Sans Arabic", "Noto Sans", system-ui, -apple-system, "Segoe UI", Roboto, Tahoma, Arial, sans-serif' },
+    naskh: { label: 'Noto Naskh Arabic', css: '"CueMe Naskh", "Noto Naskh Arabic", "Times New Roman", serif' },
+    system: { label: 'System', css: '"Noto Sans Arabic", "Noto Naskh Arabic", system-ui, -apple-system, "Segoe UI", Roboto, Tahoma, Arial, sans-serif' }
+  };
+  function fontKey() { var k = store.get('cueme_font'); return FONTS[k] ? k : 'sans'; }
+  function fontCss() { return FONTS[fontKey()].css; }
 
   /* ------------------------------------------------------------ theme (Catppuccin) */
   var T0 = CueTheme;
@@ -443,7 +564,15 @@
       } })
     ]));
     self.body.appendChild(themePicker());
-    self.body.appendChild(el('p', { class: 'muted', text: t('keys') }));
+    var fsel = el('select', { class: 'fontsel', 'aria-label': t('font') });
+    for (var fk in FONTS) fsel.appendChild(el('option', { value: fk, text: FONTS[fk].label }));
+    fsel.value = fontKey();
+    fsel.addEventListener('change', function () {
+      store.set('cueme_font', fsel.value);
+      if (view && view.applyStyle) { view.applyStyle(); view.relayout(); }
+    });
+    self.body.appendChild(el('div', { class: 'ctl' }, [el('div', { class: 'lab' }, el('span', { text: t('font') })), fsel]));
+    self.body.appendChild(el('div', { class: 'row' }, [el('button', { text: t('keys_title'), onclick: function () { showHelp(); } })]));
     self.refresh();
   };
 
@@ -511,8 +640,8 @@
     self.body.appendChild(el('div', { class: 'row' }, [
       el('button', {
         class: 'primary', text: t('send'), onclick: function () {
-          if (link) link.send({ t: 'text', text: ta.value, name: self.nameInp.value.trim() || null });
           self.dirty = false;
+          sendTextConfirmed(ta.value, self.nameInp.value.trim() || null);
         }
       })
     ]));
@@ -522,8 +651,7 @@
         text: t('save'), onclick: function () {
           var n = self.nameInp.value.trim();
           if (!n) { self.nameInp.focus(); return; }
-          if (link) link.send({ t: 'save', name: n, text: ta.value });
-          toast(t('saved'));
+          saveConfirmed(n, ta.value);
         }
       })
     ]));
@@ -848,7 +976,7 @@
       var info = safeParse(body);
       if (!info) return;
       S.libraryPath = info.library || '';
-      S.hasNative = (role === 'display') && !!info.native;
+      S.hasNative = !!info.native && target.host === location.host && /^(127\.0\.0\.1|localhost|\[::1\])(:|$)/.test(location.host);
       if (view && view.panel) view.panel.refreshPath();
     });
   }
@@ -901,13 +1029,13 @@
       ]),
       el('div', { class: 'row' }, [
         dbtn('\u2630 ' + t('menu'), t('menu'), function () { self.toggleBar(false); self.togglePanel(true); }),
-        self.hideBtn = dbtn('\u25CC ' + t('hide_controls'), t('hide_controls'), function () { self.setHidden(!self.hidden); })
+        dbtn('? ' + t('keys_title'), t('keys_title'), function () { showHelp(); })
       ]),
       self.dscrub
     ]);
     self.dctl.addEventListener('click', function (e) { if (e.stopPropagation) e.stopPropagation(); });
     self.barTimer = null;
-    self.hidden = false;
+    self.noClickUntil = 0;
     /* tiny see-through button that brings the controls back while they are hidden */
     self.fab = el('button', { id: 'fab', text: '\u22EF', title: t('show_controls'), 'aria-label': t('show_controls'), onclick: function (e) { if (e.stopPropagation) e.stopPropagation(); self.toggleBar(true); } });
     self.flip.appendChild(self.content);
@@ -943,7 +1071,9 @@
       var n = e.target;
       while (n && n !== self.content) { if (n.tagName === 'A') { e.preventDefault(); break; } n = n.parentNode; }
     });
+    self.setupDrag();
     self.stage.addEventListener('click', function () {
+      if (now() < self.noClickUntil) return; // that was a drag, not a tap
       if (self.panel.root.className.indexOf('open') >= 0) self.togglePanel(false);
       else if (!self.isClean()) self.toggleBar(); // while presenting, stray taps do nothing: use the small button
     });
@@ -955,6 +1085,59 @@
     self.raf = self.requestFrame(self.loop);
   }
 
+  /* Touch / mouse drag scrolls the text, the mouse wheel glides it. While a finger is down
+     the text follows it (auto-scroll waits); on release it resumes and a quick flick glides on. */
+  DisplayView.prototype.setupDrag = function () {
+    var self = this, st = self.stage, d = null;
+    var dirSign = function () { return S.settings.flip_y ? -1 : 1; };
+    var onUi = function (e) {
+      var n = e.target;
+      while (n && n !== st) { if (n.id === 'dctl' || n.id === 'fab' || n.id === 'menubtn') return true; n = n.parentNode; }
+      return false;
+    };
+    var start = function (y, e) {
+      if (onUi(e) || self.panel.root.className.indexOf('open') >= 0) return;
+      self.eng.held = false;
+      d = { y0: y, last: y, lastT: now(), v: 0, moved: false };
+    };
+    var move = function (y) {
+      if (!d) return;
+      if (!d.moved) { if (Math.abs(y - d.y0) < 8) return; d.moved = true; self.eng.held = true; self.eng.target = null; self.eng.jog = 0; self.cancelCountdown(); }
+      var t1 = now(), dy = y - d.last;
+      var inst = dy / Math.max(1, t1 - d.lastT) * 1000;
+      d.v = d.v * 0.6 + inst * 0.4;
+      d.last = y; d.lastT = t1;
+      self.eng.nudge(-dy * dirSign());
+      self.paint();
+      self.sendPos(false);
+    };
+    var end = function () {
+      if (!d) return;
+      var was = d; d = null;
+      if (!was.moved) return;
+      self.eng.held = false;
+      self.noClickUntil = now() + 350;
+      if (Math.abs(was.v) > 400 && now() - was.lastT < 120) self.eng.glideBy(-was.v * 0.3 * dirSign()); // flick
+      self.sendPos(true);
+    };
+    st.addEventListener('touchstart', function (e) { if (e.touches.length === 1) start(e.touches[0].clientY, e); else end(); });
+    st.addEventListener('touchmove', function (e) { if (e.touches.length === 1) move(e.touches[0].clientY); });
+    st.addEventListener('touchend', end);
+    st.addEventListener('touchcancel', end);
+    st.addEventListener('mousedown', function (e) { if (e.button === 0) start(e.clientY, e); });
+    document.addEventListener('mousemove', self.onMouseMove = function (e) { if (d && (e.buttons & 1)) move(e.clientY); else if (d) end(); });
+    document.addEventListener('mouseup', self.onMouseUp = end);
+    window.addEventListener('blur', self.onDragBlur = function () { if (d) { d.moved = d.moved || false; if (d.moved) end(); else d = null; } });
+    st.addEventListener('wheel', function (e) {
+      if (self.panel.root.className.indexOf('open') >= 0) return;
+      var dy = e.deltaY * (e.deltaMode === 1 ? 40 : (e.deltaMode === 2 ? self.stage.clientHeight : 1));
+      if (!dy) return;
+      e.preventDefault();
+      self.cancelCountdown();
+      self.eng.glideBy(dy * dirSign());
+    });
+  };
+
   DisplayView.prototype.requestFrame = function (fn) {
     return (window.requestAnimationFrame || function (f) { return setTimeout(function () { f(now()); }, 16); })(fn);
   };
@@ -964,6 +1147,9 @@
     document.removeEventListener('keydown', this.onKeyDown);
     document.removeEventListener('keyup', this.onKeyUp);
     window.removeEventListener('blur', this.onBlur);
+    window.removeEventListener('blur', this.onDragBlur);
+    document.removeEventListener('mousemove', this.onMouseMove);
+    document.removeEventListener('mouseup', this.onMouseUp);
     window.removeEventListener('resize', this.onResize);
     clearTimeout(this.countTimer);
     clearTimeout(this.jogTimer);
@@ -972,18 +1158,10 @@
   };
 
   /* clean = nothing but the script: fullscreen, or "hide controls" */
-  DisplayView.prototype.isClean = function () { return this.hidden || document.body.className.indexOf('fs') >= 0; };
+  DisplayView.prototype.isClean = function () { return document.body.className.indexOf('fs') >= 0; };
   DisplayView.prototype.updateChrome = function () {
     app.className = this.isClean() ? 'clean' : '';
-    if (this.hideBtn) this.hideBtn.textContent = '\u25CC ' + (this.hidden ? t('show_controls') : t('hide_controls'));
   };
-  DisplayView.prototype.setHidden = function (on) {
-    this.hidden = !!on;
-    this.toggleBar(false);
-    this.updateChrome();
-    toast(on ? t('controls_hidden') : t('show_controls'));
-  };
-
   DisplayView.prototype.toggleBar = function (on) {
     var open = this.dctl.className.indexOf('show') >= 0;
     if (on === undefined) on = !open;
@@ -1023,6 +1201,7 @@
     this.stage.style.background = s.bg_color;
     this.content.style.color = s.text_color;
     this.content.style.fontSize = s.font_size + 'px';
+    this.content.style.fontFamily = fontCss();
     this.content.className = 'md' + (s.bold ? ' bold' : '');
     this.flip.style.transform = 'scale(' + (s.flip_x ? -1 : 1) + ',' + (s.flip_y ? -1 : 1) + ')';
     this.cueL.style.display = this.cueR.style.display = 'block';
@@ -1234,26 +1413,52 @@
     void self;
   };
 
+  DisplayView.prototype.openTab = function (tab) {
+    this.toggleBar(false);
+    this.togglePanel(true);
+    this.panel.setTab(tab);
+  };
+
   DisplayView.prototype.keyDown = function (e) {
-    if (keyName(e) === 'Escape' && this.panel.root.className.indexOf('open') >= 0) { this.togglePanel(false); return; }
-    if (isTyping(e)) return;
-    var k = keyName(e), alt = e.altKey, handled = true;
-    if (k === ' ' || k === 'Spacebar') this.toggle();
+    var k = keyName(e), alt = e.altKey, ctrl = e.ctrlKey || e.metaKey, handled = true;
+    if (k === 'Escape') {
+      if (document.getElementById('help')) showHelp();
+      else if (this.panel.root.className.indexOf('open') >= 0) this.togglePanel(false);
+      else if (this.dctl.className.indexOf('show') >= 0) this.toggleBar(false);
+      else if (fsElement()) toggleFullscreen();
+      else handled = false;
+      if (handled) e.preventDefault();
+      return;
+    }
+    if (ctrl && !isTyping(e) && (k === 'q' || k === 'Q')) { e.preventDefault(); quitApp(); return; }
+    if (isTyping(e) || ctrl) return;
+    if (document.getElementById('help')) { if (k === '?' || k === 'F1') { showHelp(); e.preventDefault(); } return; }
+    var nth = /^[1-9]$/.test(k) ? parseInt(k, 10) - 1 : -1;
+    if (k === ' ' || k === 'Spacebar' || ((k === 'k' || k === 'K') && !alt)) this.toggle();
     else if (k === 'ArrowUp' && !alt) { this.eng.target = null; this.eng.jog = -0.35; }
     else if (k === 'ArrowDown' && !alt) { this.eng.target = null; this.eng.jog = 0.35; }
-    else if (k === 'ArrowUp' && alt) adjust('font_size', 2);
-    else if (k === 'ArrowDown' && alt) adjust('font_size', -2);
-    else if (k === 'ArrowRight' && !alt) adjust('speed', 1);
-    else if (k === 'ArrowLeft' && !alt) adjust('speed', -1);
+    else if ((k === 'ArrowUp' && alt) || k === '+' || k === '=') adjust('font_size', 2);
+    else if ((k === 'ArrowDown' && alt) || k === '-' || k === '_') adjust('font_size', -2);
+    else if ((k === 'ArrowRight' && !alt) || k === '.' || k === '>') adjust('speed', 1);
+    else if ((k === 'ArrowLeft' && !alt) || k === ',' || k === '<') adjust('speed', -1);
     else if (k === '[') adjust('width', -2);
     else if (k === ']') adjust('width', 2);
-    else if ((k === 'f' || k === 'F') && alt) toggleFullscreen();
-    else if ((k === 'e' || k === 'E') && alt) { this.togglePanel(true); this.panel.setTab('script'); }
-    else if (k === 'm' || k === 'M') this.togglePanel();
-    else if (k === 'c' || k === 'C') this.setHidden(!this.hidden);
-    else if (k === 'Home') this.eng.target = 0;
+    else if (k === 'F11' || k === 'f' || k === 'F') toggleFullscreen();
+    else if (k === 'e' || k === 'E') this.openTab('script');
+    else if (k === 'o' || k === 'O') this.openTab('outline');
+    else if (k === 'm' || k === 'M') { this.toggleBar(false); this.togglePanel(); }
+    else if (k === 'c' || k === 'C') this.toggleBar();
+    else if (k === 'Home' || k === 't' || k === 'T') this.eng.target = 0;
+    else if (k === 'End') this.eng.target = this.eng.max;
+    else if (k === 'r' || k === 'R') { this.pause(); this.eng.target = 0; }
     else if (k === 'PageDown') this.heading(1);
     else if (k === 'PageUp') this.heading(-1);
+    else if (nth >= 0) this.gotoHeading(nth);
+    else if (k === 'x' || k === 'X') toggleSwitch('flip_x');
+    else if (k === 'y' || k === 'Y') toggleSwitch('flip_y');
+    else if (k === 'b' || k === 'B') toggleSwitch('bold');
+    else if (k === 'd' || k === 'D') toggleSwitch('focus');
+    else if (k === '?' || k === 'F1') showHelp();
     else handled = false;
     if (handled) e.preventDefault();
   };
@@ -1384,20 +1589,40 @@
   RemoteView.prototype.relayout = function () {};
 
   RemoteView.prototype.keyDown = function (e) {
-    if (isTyping(e)) return;
-    var k = keyName(e), alt = e.altKey, handled = true;
-    if (k === ' ' || k === 'Spacebar') { if (!e.repeat) sendCmd({ cmd: 'toggle' }); }
+    var k = keyName(e), alt = e.altKey, ctrl = e.ctrlKey || e.metaKey, handled = true;
+    if (k === 'Escape') {
+      if (document.getElementById('help')) { showHelp(); e.preventDefault(); }
+      return;
+    }
+    if (ctrl && !isTyping(e) && (k === 'q' || k === 'Q')) { e.preventDefault(); quitApp(); return; }
+    if (isTyping(e) || ctrl) return;
+    if (document.getElementById('help')) { if (k === '?' || k === 'F1') { showHelp(); e.preventDefault(); } return; }
+    var nth = /^[1-9]$/.test(k) ? parseInt(k, 10) - 1 : -1;
+    if (k === ' ' || k === 'Spacebar' || ((k === 'k' || k === 'K') && !alt)) { if (!e.repeat) sendCmd({ cmd: 'toggle' }); }
     else if (k === 'ArrowUp' && !alt) { if (!e.repeat) sendCmd({ cmd: 'jog', v: -0.35 }); this.keyJog(-0.35); }
     else if (k === 'ArrowDown' && !alt) { if (!e.repeat) sendCmd({ cmd: 'jog', v: 0.35 }); this.keyJog(0.35); }
-    else if (k === 'ArrowUp' && alt) adjust('font_size', 2);
-    else if (k === 'ArrowDown' && alt) adjust('font_size', -2);
-    else if (k === 'ArrowRight' && !alt) adjust('speed', 1);
-    else if (k === 'ArrowLeft' && !alt) adjust('speed', -1);
+    else if ((k === 'ArrowUp' && alt) || k === '+' || k === '=') adjust('font_size', 2);
+    else if ((k === 'ArrowDown' && alt) || k === '-' || k === '_') adjust('font_size', -2);
+    else if ((k === 'ArrowRight' && !alt) || k === '.' || k === '>') adjust('speed', 1);
+    else if ((k === 'ArrowLeft' && !alt) || k === ',' || k === '<') adjust('speed', -1);
     else if (k === '[') adjust('width', -2);
     else if (k === ']') adjust('width', 2);
-    else if ((k === 'f' || k === 'F') && alt) toggleFullscreen();
-    else if ((k === 'e' || k === 'E') && alt) this.panel.setTab('script');
-    else if (k === 'Home') sendCmd({ cmd: 'top' });
+    else if ((k === 'f' || k === 'F') && alt) toggleFullscreen();          // this window
+    else if (k === 'F11') toggleFullscreen();                              // this window
+    else if (k === 'f' || k === 'F') sendCmd({ cmd: 'fullscreen' });       // the display
+    else if (k === 'e' || k === 'E') this.panel.setTab('script');
+    else if (k === 'o' || k === 'O') this.panel.setTab('outline');
+    else if (k === 'Home' || k === 't' || k === 'T') sendCmd({ cmd: 'top' });
+    else if (k === 'End') sendCmd({ cmd: 'seek', p: 1 });
+    else if (k === 'r' || k === 'R') { sendCmd({ cmd: 'pause' }); sendCmd({ cmd: 'top' }); }
+    else if (k === 'PageDown') sendCmd({ cmd: 'heading', dir: 1 });
+    else if (k === 'PageUp') sendCmd({ cmd: 'heading', dir: -1 });
+    else if (nth >= 0) sendCmd({ cmd: 'goto_heading', index: nth });
+    else if (k === 'x' || k === 'X') toggleSwitch('flip_x');
+    else if (k === 'y' || k === 'Y') toggleSwitch('flip_y');
+    else if (k === 'b' || k === 'B') toggleSwitch('bold');
+    else if (k === 'd' || k === 'D') toggleSwitch('focus');
+    else if (k === '?' || k === 'F1') showHelp();
     else handled = false;
     if (handled) e.preventDefault();
   };
@@ -1418,7 +1643,7 @@
 
   /* expose a tiny surface for tests */
   window.__cueme = {
-    state: S, setTheme: setTheme, loadTheme: loadTheme, adjust: adjust, goHome: goHome, canBack: function () { return !atHome; },
+    state: S, setFs: setFsClass, setTheme: setTheme, loadTheme: loadTheme, adjust: adjust, goHome: goHome, canBack: function () { return !atHome; },
     decodeCanvas: decodeCanvas, parseScanned: parseScanned, canScan: canScan
   };
 

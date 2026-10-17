@@ -291,16 +291,12 @@ await T('display works stand-alone: tap shows on-screen controls, play/pause/jum
   assert.equal(await D.locator('#dctl.show').count(), 0);
 });
 
-await T('clean mode: hide controls leaves only a faint dot; the dot brings the bar back; stray taps do nothing', async () => {
-  await D.evaluate(() => { document.getElementById('dctl').className = ''; });
-  await D.locator('#stage').click({ position: { x: 600, y: 200 } });
-  await D.waitForSelector('#dctl.show');
-  await D.locator('#dctl button', { hasText: 'Hide controls' }).click();
-  assert.equal(await D.locator('#dctl.show').count(), 0);
+await T('fullscreen = clean mode: only a faint dot; stray taps do nothing; the dot brings the bar back', async () => {
+  await D.evaluate(() => { document.getElementById('dctl').className = ''; window.__cueme.setFs(true); });
   assert.equal(await D.locator('#menubtn').isVisible(), false, 'menu button hidden');
   assert.equal(await D.locator('#fab').isVisible(), true, 'dot visible');
   const op = await D.evaluate(() => parseFloat(getComputedStyle(document.getElementById('fab')).opacity));
-  assert.ok(op < 0.4, 'dot is see-through: ' + op);
+  assert.ok(op < 0.6, 'dot is see-through: ' + op);
   await D.locator('#stage').click({ position: { x: 600, y: 200 } });
   assert.equal(await D.locator('#dctl.show').count(), 0, 'stray tap does nothing');
   await D.screenshot({ path: path.join(SHOTS, 'display-clean.png') });
@@ -308,16 +304,74 @@ await T('clean mode: hide controls leaves only a faint dot; the dot brings the b
   await D.waitForSelector('#dctl.show');
   assert.equal(await D.locator('#fab').isVisible(), false, 'dot hides while the bar is up');
   await D.locator('#dctl button', { hasText: 'Menu' }).click();
-  assert.ok(await D.locator('#panel.open').count() === 1, 'menu opens from the bar');
+  assert.equal(await D.locator('#panel.open').count(), 1, 'menu opens from the bar');
   await D.keyboard.press('Escape');
-  await D.locator('#fab').click();
-  await D.locator('#dctl button', { hasText: 'Show controls' }).click(); // touch way back
-  assert.equal(await D.locator('#menubtn').isVisible(), true);
+  await D.evaluate(() => window.__cueme.setFs(false));
+  assert.equal(await D.locator('#menubtn').isVisible(), true, 'normal controls are back outside fullscreen');
   assert.equal(await D.locator('#fab').isVisible(), false);
-  await D.keyboard.press('c'); // keyboard toggles it too
-  assert.equal(await D.locator('#menubtn').isVisible(), false);
-  await D.keyboard.press('c');
-  assert.equal(await D.locator('#menubtn').isVisible(), true);
+});
+
+await T('touch/mouse drag scrolls the text and wheel glides it', async () => {
+  await D.evaluate(() => { document.getElementById('dctl').className = ''; });
+  await D.keyboard.press('Home'); await sleep(1500);
+  const a = await posPx(D);
+  await D.mouse.move(600, 500); await D.mouse.down(); await D.mouse.move(600, 300, { steps: 8 }); 
+  const during = await posPx(D);
+  await D.mouse.up();
+  assert.ok(during > a + 100, `dragging up moved the text forward ${a} -> ${during}`);
+  assert.equal(await D.locator('#dctl.show').count(), 0, 'a drag is not a tap');
+  await sleep(700);
+  const b = await posPx(D);
+  await D.mouse.move(600, 400); await D.mouse.wheel(0, 300); await sleep(900);
+  assert.ok((await posPx(D)) > b + 100, 'wheel moved it');
+  await D.mouse.wheel(0, -300); await sleep(900);
+});
+
+await T('keyboard: End, Home, number keys, Esc and the help list', async () => {
+  await D.locator('#stage').click({ position: { x: 600, y: 200 }, force: true }).catch(() => {});
+  await D.evaluate(() => { document.getElementById('dctl').className = ''; });
+  await D.keyboard.press('End'); await sleep(2600);
+  assert.ok(parseFloat(await D.evaluate(() => document.getElementById('progressbar').style.width)) > 98, 'End');
+  await D.keyboard.press('Home'); await sleep(2600);
+  assert.ok(parseFloat(await D.evaluate(() => document.getElementById('progressbar').style.width)) < 2, 'Home');
+  await D.keyboard.press('2'); await sleep(2200);
+  assert.ok(parseFloat(await D.evaluate(() => document.getElementById('progressbar').style.width)) > 0.5, 'heading 2');
+  await D.keyboard.press('?');
+  await D.waitForSelector('#help');
+  await D.keyboard.press('Escape');
+  assert.equal(await D.locator('#help').count(), 0);
+  const w0 = await D.evaluate(() => window.__cueme.state.settings.font_size);
+  await D.keyboard.press('+'); await sleep(300);
+  assert.equal(await D.evaluate(() => window.__cueme.state.settings.font_size), w0 + 2);
+  await D.keyboard.press('x'); await sleep(300);
+  assert.equal(await D.evaluate(() => window.__cueme.state.settings.flip_x), true);
+  await D.keyboard.press('x'); await sleep(300);
+  await D.keyboard.press('Home'); await sleep(1500);
+});
+
+await T('bundled Arabic font loads and a send reports "Sent"', async () => {
+  assert.match(await D.evaluate(() => document.getElementById('content').style.fontFamily), /CueMe Sans Arabic/);
+  assert.equal(await D.evaluate(async () => { await document.fonts.load('16px "CueMe Sans Arabic"', 'مرحبا'); return document.fonts.check('16px "CueMe Sans Arabic"', 'مرحبا'); }), true);
+  await R.locator('.tabs button').nth(2).click();
+  await R.locator('textarea').fill('# Sent test\n\nمرحبا');
+  await R.locator('button.primary', { hasText: 'Send to display' }).click();
+  await R.waitForFunction(() => /^Sent/.test(document.getElementById('toast') && document.getElementById('toast').textContent), null, { timeout: 5000 });
+  await R.locator('input[placeholder="File name"]').fill('confirm-test');
+  await R.locator('button', { hasText: /^Save$/ }).click();
+  await R.waitForFunction(() => /Saved/.test(document.getElementById('toast').textContent), null, { timeout: 6000 });
+});
+
+await T('portrait phone: the menu is a bottom sheet and the script stays visible above it', async () => {
+  const c = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+  const p = await c.newPage();
+  await p.goto(base);
+  await p.locator('button.big').nth(0).click();
+  await p.waitForSelector('#stage');
+  await p.locator('#menubtn').click();
+  const r = await p.evaluate(() => { const b = document.getElementById('panel').getBoundingClientRect(); return { top: b.top, h: window.innerHeight }; });
+  assert.ok(r.top > r.h * 0.3, `sheet starts at ${r.top} of ${r.h}`);
+  await p.screenshot({ path: path.join(SHOTS, 'display-portrait-sheet.png') });
+  await c.close();
 });
 
 await T('a link inside a script never navigates the display away', async () => {

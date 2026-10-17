@@ -121,6 +121,8 @@ pub enum ServerMsg {
     Error {
         msg: String,
     },
+    /// Heartbeat so a page can tell a dead connection from a quiet one.
+    Ping,
 }
 
 #[cfg(test)]

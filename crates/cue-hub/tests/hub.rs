@@ -575,3 +575,26 @@ async fn huge_or_nested_text_does_not_blow_up_and_names_are_bounded() {
     assert!(st["html"].as_str().unwrap().len() < 4_000_000);
     assert!(st["name"].as_str().unwrap().chars().count() <= 120);
 }
+
+#[tokio::test]
+async fn native_quit_needs_the_app_and_the_pin() {
+    let d = tempfile::tempdir().unwrap();
+    let h = hub(d.path()).await;
+    let c = reqwest::Client::new();
+    let base = format!("http://{}", h.addr);
+    let r = c
+        .post(format!("{base}/api/native/quit?pin={}", h.pin))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 404, "a plain hub has no window to close");
+    let r = c
+        .post(format!("{base}/api/native/quit?pin=bad"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 401);
+    // browsers get the heartbeat the page uses to notice dead connections
+    let mut ws = conn(&h, "remote").await;
+    wait_for(&mut ws, "ping", |_| true).await;
+}
