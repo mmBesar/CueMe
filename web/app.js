@@ -249,22 +249,25 @@
   /* Send the script and CHECK it arrived (the hub echoes the new text back to everyone);
      retry a couple of times, because a phone on Wi-Fi sometimes loses the first message. */
   function sendTextConfirmed(text, name, done) {
-    // The hub answers every accepted text with a new state (rev changes). Send once; only if
-    // nothing at all came back after 6 s, send one more time (a lost first message on flaky
-    // Wi-Fi). Never resend sooner: each text message rewinds the display to the top.
+    // The hub answers every accepted text with a new state (rev changes). Each text message
+    // rewinds the display to the top, so we only send AGAIN when the connection itself was lost
+    // and re-made (the first message may have died with it). A slow old phone that is busy drawing
+    // a big script is given up to 25 s to answer; that is waiting, not failing.
     var rev0 = S.rev, tries = 0;
     function finish(ok, msg) { toast(msg); if (done) done(ok); }
     function attempt() {
       tries++;
+      var ws = link && link.ws;
       if (!link || !link.send({ t: 'text', text: text, name: name })) {
-        if (tries < 6) { setTimeout(attempt, 1000); return; }
+        if (tries < 8) { setTimeout(attempt, 1000); return; }
         finish(false, t('offline')); return;
       }
       var started = now();
       (function wait() {
         if (S.rev !== rev0 || S.text === text) { finish(true, t('sent')); return; }
-        if (now() - started < 6000) { setTimeout(wait, 300); return; }
-        if (tries < 2) attempt(); else finish(false, t('no_answer'));
+        if (link && link.ws !== ws && tries < 4) { setTimeout(attempt, 600); return; } // reconnected: resend
+        if (now() - started < 25000) { setTimeout(wait, 300); return; }
+        finish(false, t('no_answer'));
       }());
     }
     attempt();
@@ -415,11 +418,11 @@
 
   /* ------------------------------------------------------------ script font (per device) */
   var FONTS = {
-    sans: { label: 'Noto Sans Arabic', css: '"CueMe Sans Arabic", "Noto Sans", system-ui, -apple-system, "Segoe UI", Roboto, Tahoma, Arial, sans-serif' },
-    naskh: { label: 'Noto Naskh Arabic', css: '"CueMe Naskh", "Noto Naskh Arabic", "Times New Roman", serif' },
-    system: { label: 'System', css: '"Noto Sans Arabic", "Noto Naskh Arabic", system-ui, -apple-system, "Segoe UI", Roboto, Tahoma, Arial, sans-serif' }
+    naskh: { label: 'Roboto + Noto Naskh Arabic UI', css: '"CueMe Roboto", "CueMe Naskh UI", "Noto Naskh Arabic UI", "Noto Naskh Arabic", system-ui, sans-serif' },
+    sans: { label: 'Noto Sans Arabic', css: '"CueMe Roboto", "CueMe Sans Arabic", "Noto Sans Arabic", system-ui, -apple-system, "Segoe UI", Tahoma, Arial, sans-serif' },
+    system: { label: 'System', css: 'system-ui, -apple-system, "Segoe UI", Roboto, Tahoma, Arial, sans-serif' }
   };
-  function fontKey() { var k = store.get('cueme_font'); return FONTS[k] ? k : 'sans'; }
+  function fontKey() { var k = store.get('cueme_font'); return FONTS[k] ? k : 'naskh'; }
   function fontCss() { return FONTS[fontKey()].css; }
 
   /* ------------------------------------------------------------ theme (Catppuccin) */
@@ -634,17 +637,28 @@
     self.nameInp = el('input', { type: 'text', dir: 'auto', placeholder: t('file_name'), value: S.name });
     self.filesBox = el('div', { class: 'files' });
 
+    // Send and Clear sit ABOVE the text box, so the on-screen keyboard can never cover them.
+    function doSend() {
+      // leave the box first: Android keyboards keep the last word "in composition" until then,
+      // and the text must be read after that word has been committed
+      try { ta.blur(); } catch (e) {}
+      setTimeout(function () {
+        self.dirty = false;
+        sendTextConfirmed(ta.value.replace(/\r\n?/g, '\n'), self.nameInp.value.trim() || null);
+      }, 80);
+    }
+    self.body.appendChild(el('div', { class: 'row' }, [
+      el('button', { class: 'primary grow', text: t('send'), onclick: doSend }),
+      el('button', { class: 'danger', text: t('clear'), onclick: function () {
+        if (ta.value && !window.confirm(t('confirm_clear'))) return;
+        ta.value = ''; self.nameInp.value = ''; self.dirty = false;
+        if (self.previewMode) self.schedulePreview(0);
+        sendTextConfirmed('', null);
+      } })
+    ]));
     self.body.appendChild(el('div', { class: 'row' }, [self.editBtn, self.prevBtn]));
     self.body.appendChild(ta);
     self.body.appendChild(self.preview);
-    self.body.appendChild(el('div', { class: 'row' }, [
-      el('button', {
-        class: 'primary', text: t('send'), onclick: function () {
-          self.dirty = false;
-          sendTextConfirmed(ta.value, self.nameInp.value.trim() || null);
-        }
-      })
-    ]));
     self.body.appendChild(el('div', { class: 'row' }, [
       el('div', { class: 'grow' }, [self.nameInp]),
       el('button', {

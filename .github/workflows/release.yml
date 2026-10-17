@@ -87,8 +87,8 @@ jobs:
 
   # ------------------------------------------------------------------
   # Linux desktop app (window + hub), amd64 and arm64: AppImage + .deb + plain binary.
-  # Built on Ubuntu 22.04 (glibc 2.35) on purpose: the result then runs on Debian 12,
-  # Ubuntu 22.04+, Fedora, etc. Building on a newer Ubuntu would demand a newer glibc.
+  # Built on the newest Ubuntu runner on purpose: newest WebKitGTK and libraries, so the app
+  # targets current distros (Debian 13+, Fedora 44+, Ubuntu 26.04+, NixOS 26.05+).
   # ------------------------------------------------------------------
   desktop:
     needs: test
@@ -96,8 +96,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { arch: amd64, runner: ubuntu-22.04 }
-          - { arch: arm64, runner: ubuntu-22.04-arm }
+          - { arch: amd64, runner: ubuntu-24.04 }
+          - { arch: arm64, runner: ubuntu-24.04-arm }
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v6
@@ -257,6 +257,8 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and push this CPU's image
         uses: docker/build-push-action@v7
+        env:
+          DOCKER_BUILD_RECORD_UPLOAD: "false"   # no ".dockerbuild" artifacts: they broke the release download
         with:
           context: docker
           file: docker/Dockerfile
@@ -312,6 +314,8 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+          # only our own downloads (never Docker's build-record artifacts)
+          pattern: "{hub-*,desktop-*,android}"
       - name: Checksums
         run: cd dist && sha256sum * > SHA256SUMS.txt && ls -la
       - name: Create the release

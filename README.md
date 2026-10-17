@@ -1,30 +1,72 @@
+<div align="center">
+
+<img src="assets/icon-256.png" width="110" alt="CueMe icon">
+
 # CueMe
 
-A teleprompter where **every app is both the display and the remote**.
+**A free teleprompter where every device is both the screen and the remote.**
+Arabic + English, Linux and Android (even Android 6), no cloud, no account.
 
-- Put the script on a screen (a laptop, a tablet, an old phone) and control it from any other device, or from the same one.
-- Display on Android + remote on Linux, or the other way round: any pairing works. Android 6 works as display **and** as remote.
-- Markdown with **Arabic + English mixed** (each paragraph lays out in its own direction), Arabic UI included.
-- Smooth, live scrolling: the remote always shows where the display really is; scrubbing glides instead of jumping.
-- Four **Catppuccin** themes (Latte, Frappé, Macchiato, Mocha) with 14 accent colours. Default: Macchiato + Mauve.
+[![Release](https://img.shields.io/github/v/release/mmBesar/CueMe?style=flat-square&color=c6a0f6&labelColor=24273a)](https://github.com/mmBesar/CueMe/releases)
+[![Build](https://img.shields.io/github/actions/workflow/status/mmBesar/CueMe/ci.yml?style=flat-square&label=build&labelColor=24273a)](https://github.com/mmBesar/CueMe/actions)
+[![Downloads](https://img.shields.io/github/downloads/mmBesar/CueMe/total?style=flat-square&color=a6da95&labelColor=24273a)](https://github.com/mmBesar/CueMe/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-8aadf4?style=flat-square&labelColor=24273a)](LICENSE)
+![Linux](https://img.shields.io/badge/Linux-amd64%20%7C%20arm64%20%7C%20riscv64-eed49f?style=flat-square&labelColor=24273a)
+![Android](https://img.shields.io/badge/Android-6%20and%20up-a6da95?style=flat-square&labelColor=24273a)
+![Docker](https://img.shields.io/badge/Docker-ghcr.io%2Fmmbesar%2Fcueme-8aadf4?style=flat-square&labelColor=24273a)
 
-No cloud, no account, nothing leaves your network. Free software (MIT).
+<img src="docs/screenshots/display.png" width="80%" alt="CueMe display">
 
-## Downloads
+</div>
 
-Grab them from the **Releases** page.
+## Why CueMe
+
+- **Any device can be the screen** (laptop, tablet, an old phone) and **any device can be the remote**, or the same one. Android on the display and Linux as the remote? Or the opposite? Both work.
+- **Arabic and English together**: each paragraph lays out in its own direction. The Arabic UI is mirrored, and the app ships with good fonts (Noto Naskh Arabic UI, Roboto, JetBrains Mono for code).
+- **Smooth, live scrolling**: the remote always shows where the screen really is; dragging the slider glides instead of jumping.
+- **Jump around fast**: an outline of all headings, next/previous heading, and keys 1-9.
+- **Four Catppuccin themes** (Latte, Frappé, Macchiato, Mocha) with 14 accent colours.
+- **Private**: it all runs on your own network. Nothing goes to the internet.
+
+<div align="center">
+<img src="docs/screenshots/remote.png" width="45%" alt="Remote">
+&nbsp;
+<img src="docs/screenshots/phone.png" width="22%" alt="Phone">
+&nbsp;
+<img src="docs/screenshots/home-ar.png" width="25%" alt="Arabic interface">
+</div>
+
+## Download
+
+Get everything from the **[Releases page](https://github.com/mmBesar/CueMe/releases)**.
 
 | You have | Download |
 |---|---|
-| Linux PC / laptop (amd64, arm64) | `CueMe-linux-<arch>.AppImage`, or the `.deb`, or the plain `cueme-desktop-linux-<arch>.tar.gz` |
-| Linux riscv64 | `cueme-linux-riscv64.deb`, `cueme-desktop-linux-riscv64.tar.gz` and, when the build could make it, `CueMe-linux-riscv64.AppImage` (they use the system `libwebkit2gtk-4.1`) |
+| Linux PC / laptop (amd64, arm64) | `CueMe-linux-<arch>.AppImage`, or the `.deb`, or the `cueme-desktop-linux-<arch>.tar.gz` |
+| Linux riscv64 | `cueme-linux-riscv64.deb` or `cueme-desktop-linux-riscv64.tar.gz` (and the AppImage when it could be built) |
 | Android 8 or newer | `CueMe-android-modern.apk` |
-| **Android 6 / 7** | `CueMe-android6.apk` (Android 6.0 and up, all CPU types) |
-| Server / Raspberry Pi / no screen | `cueme-serve-linux-<arch>` (one static file) or the Docker image `ghcr.io/mmbesar/cueme` |
+| **Android 6 / 7** | `CueMe-android6.apk` |
+| Server / Raspberry Pi / no screen | `cueme-serve-linux-<arch>` (one file) or the Docker image (see below) |
 
-Every download is listed with its checksum in `SHA256SUMS.txt`.
+**Linux notes.** The apps are built on current systems, so use a recent distribution (Debian 13, Fedora 44, Ubuntu 26.04, NixOS 26.05 and newer). The `.deb` and the tarball need the system packages `libwebkit2gtk-4.1-0` and `libgtk-3-0`; the AppImage carries its own. The window icon on Wayland desktops (Hyprland, Plasma, Noctalia...) comes from `cueme.desktop`: the `.deb` installs it, and the AppImage / plain binary create it in your own `~/.local/share` the first time they start (set `CUEME_NO_INTEGRATION=1` to prevent that; delete the two `cueme` files there to undo it).
 
-**Linux notes.** The desktop builds are made on Ubuntu 22.04, so they run on Debian 12, Ubuntu 22.04+, Fedora and newer. The plain tarball (and the `.deb`) need the system packages `libwebkit2gtk-4.1-0` and `libgtk-3-0`; the AppImage carries its own. Wayland shells (Hyprland, Plasma, Noctalia...) find the window icon through `cueme.desktop`. The `.deb` installs it. The AppImage and the plain binary create it themselves in your own `~/.local/share/applications` and `~/.local/share/icons` on first start (never as root; set `CUEME_NO_INTEGRATION=1` to prevent it; delete those two `cueme` files to undo it).
+**Android.** Open the APK on the phone and allow "install from this source" once.
+
+## Docker (the web version of CueMe)
+
+The Docker image is the **same app** as the desktop one, served as a web page. Run it on a server, a NAS or a Raspberry Pi, then open it from any browser.
+
+1. Save [`docker-compose.yml`](docker-compose.yml) in a folder and run `docker compose up -d`.
+2. Read the PIN: `docker compose logs cueme` (a line like `PIN: 123`).
+3. Open **`http://<the-machine-ip>:7878`** on any device and type the PIN.
+
+Good to know:
+- **Port 7878.** Scripts you save go to `./scripts`, settings and the PIN to `./config`.
+- **Many devices at once.** Every browser that opens the page chooses **Display** or **Remote** for itself, so a phone can be the screen while a tablet and a laptop are remotes. They all share one script.
+- **Works with the apps.** The desktop and Android apps find the Docker hub in their *Nearby* list (that is why the compose file uses host networking), or you can scan its QR code / type its address. An app can be a remote for the Docker hub, or show its script.
+- No automatic discovery needed? Remove `network_mode: host` and use the `ports:` line in the file.
+
+Without compose: `cueme-serve` (the single file) does the same on any Linux box.
 
 ## Using it
 
@@ -54,7 +96,7 @@ If a Wi-Fi blocks broadcast (some guest networks), use the QR code or type the a
 - **Jog slider**: push for slow or fast scrolling, let go and it stops.
 
 ### Scripts: where they are saved and how to reload them
-Write or paste text in the **Script** tab (Markdown). **Send to display** shows it, **Save** stores it. The **Library** list shows every `.md` / `.txt` file in the display's script folder; tap a name to load it. The folder path is printed under the list. To reload after copying files into the folder by hand, save any script or reopen the Script tab.
+Write or paste text in the **Script** tab (Markdown). **Send to display** shows it, **Clear** empties the script (on the display and in the box), **Save** stores it. Send and Clear sit above the text box, so the phone keyboard never hides them. The **Library** list shows every `.md` / `.txt` file in the display's script folder; tap a name to load it. The folder path is printed under the list. To reload after copying files into the folder by hand, save any script or reopen the Script tab.
 
 | Where | Script folder |
 |---|---|
@@ -63,7 +105,7 @@ Write or paste text in the **Script** tab (Markdown). **Send to display** shows 
 | Headless hub / Docker | `--library DIR` (default `~/.local/share/cueme/scripts`) / the `/scripts` volume |
 
 ### Controls
-Text size, speed (lines per minute), text width, dim, cue-line position, mirror (flip X), flip Y, bold, colours, focus band, countdown, fullscreen on play, **Use theme colours for the script**, and the **script font** (Noto Sans Arabic or Noto Naskh Arabic, both bundled with the app, or the system font; this is chosen per device).
+Text size, speed (lines per minute), text width, dim, cue-line position, mirror (flip X), flip Y, bold, colours, focus band, countdown, fullscreen on play, **Use theme colours for the script**, and the **script font** (Roboto + Noto Naskh Arabic UI by default, or Noto Sans Arabic, or the system font; all bundled with the app, chosen per device).
 
 Press `?` (or `F1`) in the app for this list.
 
@@ -87,23 +129,8 @@ Press `?` (or `F1`) in the app for this list.
 
 Shortcuts also work on an Arabic keyboard layout (they follow the physical key).
 
-## Android: installing and signing (no coding needed)
-Android only installs apps that are **signed**. The release build always signs the APKs, but with which key?
-- **By default** (nothing to do): a built-in test key. The APK installs fine. The only catch: if you later install a build signed with a *different* key, Android refuses to update it in place; uninstall first (you lose nothing important: scripts are in the folder above).
-- **With your own key** (recommended once you share the app): run `scripts/make-keystore.sh` on your computer (needs Java: `sudo apt install default-jdk-headless`). It creates `cueme-release.jks`, **keep it safe and never put it in the repo**, and prints four values. On GitHub open *Settings → Secrets and variables → Actions → New repository secret* and add `ANDROID_KEYSTORE_B64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`. Every release after that is signed with your key and updates install over each other.
-
-To install an APK: open it on the phone and allow "install from this source" once.
-
-## Headless hub
-```
-cueme-serve                       # prints the PIN and the addresses
-cueme-serve --help
-docker run -d --name cueme --network host \
-  -e PUID=1000 -e PGID=1000 -e TZ=Africa/Cairo -e CUEME_PIN=123 \
-  -v ./cueme-config:/config -v ./scripts:/scripts \
-  ghcr.io/mmbesar/cueme:latest
-```
-`--network host` lets nearby devices find it automatically; without it, use the address and port 7878.
+## Android: installing updates
+APKs from the Releases page install and update normally. If you ever see "app not installed" when updating, the new file was signed with a different key than the one on your phone: uninstall the old one first (your scripts live in the folder shown in the Script tab, not inside the app).
 
 ## Security
 - Devices connect with a PIN of **up to 3 digits**: easy to type, but weak by design. Treat CueMe as a tool for a network you trust (your home or studio Wi-Fi, or Tailscale). **Never port-forward it to the internet.**
@@ -111,43 +138,17 @@ docker run -d --name cueme --network host \
 - Scripts are converted to HTML by the Rust core; raw HTML is shown as text, unsafe links and images are dropped, and a content-security-policy backs that up, so a script cannot run code. Links in a script are text only.
 - Traffic on the LAN is plain HTTP/WebSocket.
 
-## How it works
-```
- [ remote ] --WebSocket--> [ hub ] --WebSocket--> [ display ]
-   buttons, sliders      keeps script + settings    owns the scroll position,
-   show live position    relays commands            streams it ~15x per second
-```
-Every CueMe app contains the hub, so any app can be the display. The display scrolls using real elapsed time (same speed at any frame rate) and keeps its place in the *text*, not in pixels, when you change size or width.
-
-| Folder | What |
-|---|---|
-| `crates/cue-core` | Rust: settings, Markdown, script library, PIN, protocol |
-| `crates/cue-hub` | Rust: the hub (server, web UI, LAN discovery); also the `cueme-serve` program |
-| `crates/cue-android` | Rust: bridge that runs the hub inside the Android app |
-| `web/` | the UI (plain JavaScript and CSS, works on old WebViews; themes in `theme.js`) |
-| `src-tauri/` | Linux desktop window (Tauri 2) |
-| `android/` | Android app (Java WebView + Rust hub) |
-| `docker/`, `scripts/` | headless image; build and packaging helpers |
-| `tests-js/` | unit + end-to-end tests (real hub + real Chromium) |
-
-## Build it yourself
-```
-cargo test --workspace               # Rust tests
-npm ci && npm test                   # scroll engine + old-browser syntax check
-cargo build -p cue-hub && npm run e2e   # real hub + real Chromium
-cargo run -p cue-hub                 # run the hub, open the printed address
-```
-Releases: `git tag v0.1.0 && git push --tags`; `.github/workflows/release.yml` builds everything on native runners (no QEMU) and attaches it to a GitHub Release. The tag number becomes the Android version.
-
 ## Known limits
 - **Android 6 uses the phone's system WebView**, updated through Google Play. If the UI looks broken on an old phone, update "Android System WebView". QR scanning needs a WebView recent enough for the camera; if not, the button is hidden and the nearby list / typing still work.
-- If Arabic dots or marks look misplaced on some Linux system, pick another script font in the Controls tab: the bundled fonts exist exactly to make Arabic look the same everywhere.
+- If Arabic dots or marks look misplaced on a Linux system, pick another script font in the Controls tab (it is chosen per device).
 - The Android app stops serving when Android closes it in the background. Keep it open while prompting (the screen is kept awake).
-- In a plain browser, fullscreen from the remote needs a tap on the display first (browsers insist). The Android and Linux apps do it directly.
-- riscv64: the AppImage is a thin one (needs `libwebkit2gtk-4.1` installed) and is only published if an AppImage runtime exists for riscv64.
-- The Docker image finds other devices only with `--network host`.
+- In a plain browser, fullscreen from the remote needs a tap on the display first (browsers insist). The apps do it directly.
+- riscv64: the AppImage is a thin one (needs `libwebkit2gtk-4.1` installed).
+
+## For developers and maintainers
+Building, releasing and signing the Android apps: see **[MAINTAINING.md](MAINTAINING.md)**.
 
 ## Third-party
-[jsQR](https://github.com/cozmo/jsQR) (Apache-2.0, `web/vendor/jsQR.js`) decodes QR codes in the camera view. Catppuccin colours are from the [Catppuccin](https://catppuccin.com) palette (MIT). See `THIRD_PARTY.md`.
+[jsQR](https://github.com/cozmo/jsQR) (Apache-2.0) reads QR codes; Catppuccin colours are from the [Catppuccin](https://catppuccin.com) palette (MIT); fonts are Noto, Roboto and JetBrains Mono (SIL OFL). Details in [`THIRD_PARTY.md`](THIRD_PARTY.md).
 
 MIT licence, © mmBesar.

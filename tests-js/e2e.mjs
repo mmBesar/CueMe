@@ -350,8 +350,8 @@ await T('keyboard: End, Home, number keys, Esc and the help list', async () => {
 });
 
 await T('bundled Arabic font loads and a send reports "Sent"', async () => {
-  assert.match(await D.evaluate(() => document.getElementById('content').style.fontFamily), /CueMe Sans Arabic/);
-  assert.equal(await D.evaluate(async () => { await document.fonts.load('16px "CueMe Sans Arabic"', 'مرحبا'); return document.fonts.check('16px "CueMe Sans Arabic"', 'مرحبا'); }), true);
+  assert.match(await D.evaluate(() => document.getElementById('content').style.fontFamily), /CueMe Naskh UI/);
+  assert.equal(await D.evaluate(async () => { await document.fonts.load('16px "CueMe Naskh UI"', 'مرحبا'); return document.fonts.check('16px "CueMe Naskh UI"', 'مرحبا'); }), true);
   await R.locator('.tabs button').nth(2).click();
   await R.locator('textarea').fill('# Sent test\n\nمرحبا');
   await R.locator('button.primary', { hasText: 'Send to display' }).click();

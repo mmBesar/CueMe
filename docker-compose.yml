@@ -1,0 +1,29 @@
+# CueMe hub in Docker: the same app you see on the desktop, served as a web page.
+# Start it:   docker compose up -d
+# Find the PIN: docker compose logs cueme   (look for the line "PIN: 123")
+# Open it:    http://<this-machine-ip>:7878   from any browser (phone, tablet, laptop)
+services:
+  cueme:
+    image: ghcr.io/mmbesar/cueme:latest
+    container_name: cueme
+    restart: unless-stopped
+
+    # Host networking lets the Android and desktop apps FIND this hub automatically
+    # (discovery uses UDP broadcast, which Docker's normal bridge network hides).
+    # The web page is then on port 7878 of this machine.
+    # If you do not need automatic discovery, delete this line and use the "ports" block below.
+    network_mode: host
+
+    # ports:                    # (only when network_mode is NOT host)
+    #   - "7878:7878"           # the web page / app connection
+
+    environment:
+      - PUID=1000               # run as this user id  (see `id -u`)
+      - PGID=1000               # run as this group id (see `id -g`)
+      - TZ=Africa/Cairo         # your timezone
+      # - CUEME_PIN=123         # fixed PIN (up to 3 digits). Leave out for a saved random one.
+      # - CUEME_NAME=Studio     # name shown in the device list
+
+    volumes:
+      - ./config:/config        # PIN and settings
+      - ./scripts:/scripts      # your .md / .txt scripts (Save writes here)
