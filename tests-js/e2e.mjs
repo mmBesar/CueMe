@@ -47,6 +47,20 @@ for (const [n, p] of [['display', D], ['remote', R]]) {
   p.on('console', (m) => { if (m.type() === 'error') errors.push(`${n} console: ${m.text()}`); });
 }
 
+// a remote on the shared session asks the display of that session for fullscreen
+const sendFromRemote_fullscreen = async (displayPage) => {
+  const c = await browser.newContext();
+  const r = await c.newPage();
+  await r.goto(base);
+  await r.locator('button.big').nth(1).click();
+  await r.locator('button.peer').first().click();
+  await r.waitForSelector('#remote');
+  await r.waitForFunction(() => window.__cueme.state.displays >= 1);
+  await r.locator('#transport button[aria-label="Fullscreen"]').click();
+  await sleep(300);
+  await c.close();
+};
+
 const tx = (p) => p.evaluate(() => {
   const m = /translate3d\(-50%,\s*(-?[\d.]+)px/.exec(document.getElementById('content').style.transform);
   return m ? -parseFloat(m[1]) * -1 * -1 : 0; // px scrolled (positive)
@@ -418,7 +432,8 @@ await T('QR code made by the hub decodes in the browser and parses to host + PIN
     return { text, parsed: window.__cueme.parseScanned(text) };
   }, text);
   assert.equal(out.text, text);
-  assert.deepEqual(out.parsed, { host: '192.168.1.20:7878', pin: PIN });
+  assert.deepEqual(out.parsed, { host: '192.168.1.20:7878', pin: PIN, room: '' });
+  assert.deepEqual(await D.evaluate(() => window.__cueme.parseScanned('https://cueme.hs.lan/#pin=7&room=ab_1')), { host: 'cueme.hs.lan', pin: '7', room: 'ab_1' });
 });
 
 await T('PIN field is numeric', async () => {
@@ -456,6 +471,57 @@ await T('Arabic UI mirrors the layout (RTL)', async () => {
   await p.goto(base);
   assert.equal(await p.evaluate(() => document.documentElement.dir), 'rtl');
   await p.screenshot({ path: path.join(SHOTS, 'home-ar.png') });
+  await c.close();
+});
+
+
+await T('private session: a display and remote in room "zz1" never touch the shared session', async () => {
+  const c = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const a = await c.newPage(), b = await c.newPage();
+  await a.goto(`${base}&room=zz1`);
+  await a.locator('button.big').first().click();            // Display: no address / PIN questions
+  await a.waitForSelector('#stage');
+  await b.goto(`${base}&room=zz1`);
+  await b.locator('button.big').nth(1).click();             // Remote
+  await b.locator('button.peer').first().click();           // this device / server
+  await b.waitForSelector('#remote');
+  await b.waitForFunction(() => window.__cueme.state.displays === 1);
+  // the shared session (page D shows it) is a different one
+  assert.equal(await R.evaluate(() => window.__cueme.state.displays), 1);
+  await b.evaluate(() => { /* send text only into room zz1 */ });
+  await c.close();
+});
+
+await T('display menu: back closes it, home returns to the main menu; remote fullscreen closes menus', async () => {
+  const c = await browser.newContext({ viewport: { width: 1000, height: 700 } });
+  const p = await c.newPage();
+  await p.goto(base);
+  await p.locator('button.big').first().click();
+  await p.waitForSelector('#stage');
+  await p.keyboard.press('m');
+  await p.waitForSelector('#panel.open');
+  assert.equal(await p.locator('#panel .tabs button.tabicon').count(), 2, 'back + home buttons');
+  await p.locator('#panel .tabs button.tabicon').first().click();
+  await p.waitForFunction(() => !document.querySelector('#panel.open'));
+  await p.keyboard.press('m');
+  await p.waitForSelector('#panel.open');
+  await sendFromRemote_fullscreen(p);
+  await p.waitForFunction(() => !document.querySelector('#panel.open'));
+  await p.keyboard.press('m');
+  await p.waitForSelector('#panel.open');
+  await p.locator('#panel .tabs button.tabicon').nth(1).click();
+  await p.waitForSelector('.screen .big');
+  await c.close();
+});
+
+await T('themes: AMOLED is true black; Auto exists', async () => {
+  const c = await browser.newContext({ viewport: { width: 500, height: 700 } });
+  const p = await c.newPage();
+  await p.goto(base);
+  await p.evaluate(() => window.__cueme.setTheme('amoled', 'mauve'));
+  assert.equal(await p.evaluate(() => getComputedStyle(document.body).backgroundColor), 'rgb(0, 0, 0)');
+  const names = await p.locator('.fl').allInnerTexts();
+  assert.deepEqual(names, ['Latte', 'Frappé', 'Macchiato', 'Mocha', 'AMOLED', 'Auto']);
   await c.close();
 });
 

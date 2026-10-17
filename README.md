@@ -57,16 +57,29 @@ Get everything from the **[Releases page](https://github.com/mmBesar/CueMe/relea
 The Docker image is the **same app** as the desktop one, served as a web page. Run it on a server, a NAS or a Raspberry Pi, then open it from any browser.
 
 1. Save [`docker-compose.yml`](docker-compose.yml) in a folder and run `docker compose up -d`.
-2. Read the PIN: `docker compose logs cueme` (a line like `PIN: 123`).
-3. Open **`http://<the-machine-ip>:7878`** on any device and type the PIN.
+2. Read the PIN: `docker compose logs cueme` (a line like `PIN: 123`). Or set `CUEME_PIN=none` for no PIN on a trusted home network.
+3. Open **`http://<the-machine-ip>:7878`** (or your own address behind a reverse proxy) on any device.
 
-Good to know:
-- **Port 7878.** Scripts you save go to `./scripts`, settings and the PIN to `./config`.
-- **Many devices at once.** Every browser that opens the page chooses **Display** or **Remote** for itself, so a phone can be the screen while a tablet and a laptop are remotes. They all share one script.
-- **Works with the apps.** The desktop and Android apps find the Docker hub in their *Nearby* list (that is why the compose file uses host networking), or you can scan its QR code / type its address. An app can be a remote for the Docker hub, or show its script.
-- No automatic discovery needed? Remove `network_mode: host` and use the `ports:` line in the file.
+**Display just starts.** In the browser, tap **Display**: it never asks for an address. The first time it asks for the PIN only (never, if you chose `CUEME_PIN=none`), and the Connect tab shows the QR code, address and PIN for your other devices.
 
-Without compose: `cueme-serve` (the single file) does the same on any Linux box.
+**Sessions: one server, many users.** A session is one script + one set of settings + one display. On the first screen, pick:
+- **Shared (everyone)**: all devices use the same session. One display, any number of remotes. Good for one studio.
+- **Private (this device only)**: this browser gets its **own** session. Other devices join it: a remote taps *Remote* and picks the session from the list, or scans the QR code on that display. Many people can use the same server at the same time without touching each other's script.
+
+Scripts you save go to the shared `./scripts` folder, so every session can load them.
+
+**With the apps.** The desktop and Android apps work with it too: scan its QR code (or type the address and PIN) to use an app as a remote for the server, or to show the server's script.
+
+**Behind Caddy / a reverse proxy.** Works over HTTPS with WebSocket. Put CueMe and Caddy on the same Docker network (the compose file does) and use:
+```
+@cueme expression {host}.startsWith("cueme.")
+handle @cueme {
+    reverse_proxy cueme:7878
+}
+```
+Set `CUEME_URL=https://cueme.your.lan` so the logs print your real address.
+
+**Nearby discovery.** Apps find each other automatically on the Wi-Fi. Docker hides that broadcast, so the compose file also has a host-network variant (B) for it. Behind a proxy (A), connect with the address, QR or PIN instead.
 
 ## Using it
 

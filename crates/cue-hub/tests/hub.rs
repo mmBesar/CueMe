@@ -598,3 +598,70 @@ async fn native_quit_needs_the_app_and_the_pin() {
     let mut ws = conn(&h, "remote").await;
     wait_for(&mut ws, "ping", |_| true).await;
 }
+
+#[tokio::test]
+async fn rooms_are_independent_and_listed() {
+    let d = tempfile::tempdir().unwrap();
+    let h = hub(d.path()).await;
+    // two private sessions and the shared one
+    let open = |room: &str, role: &str| {
+        let url = format!("ws://{}/ws?pin={}&room={}", h.addr, h.pin, room);
+        let role = role.to_string();
+        async move {
+            let (mut ws, _) = connect_async(url).await.unwrap();
+            send(&mut ws, json!({"t":"hello","role":role})).await;
+            ws
+        }
+    };
+    let mut a_disp = open("aaa", "display").await;
+    let mut a_rem = open("aaa", "remote").await;
+    let mut b_disp = open("bbb", "display").await;
+    let mut main_rem = conn(&h, "remote").await;
+    send(&mut a_rem, json!({"t":"text","text":"# only A"})).await;
+    wait_for(&mut a_disp, "state", |v| v["text"] == "# only A").await;
+    // the other session and the shared one never see it
+    wait_for(&mut b_disp, "state", |v| v["text"] == "").await;
+    expect_silence(&mut main_rem, "cmd").await;
+    // listing: main + the two rooms that have a display
+    let base = format!("http://{}", h.addr);
+    let l: Value = reqwest::get(format!("{base}/api/rooms?pin={}", h.pin))
+        .await.unwrap().json().await.unwrap();
+    assert_eq!(l.as_array().unwrap().len(), 3);
+    // a bad room name is refused (after the PIN check)
+    assert!(connect_async(format!("ws://{}/ws?pin={}&room=../x", h.addr, h.pin)).await.is_err());
+    h.stop().await;
+}
+
+#[tokio::test]
+async fn pin_none_means_open_but_foreign_origin_still_refused() {
+    let d = tempfile::tempdir().unwrap();
+    let mut c = Config::with_data_dir(d.path());
+    c.bind = "127.0.0.1:0".parse().unwrap();
+    c.discovery = false;
+    c.pin = Some("none".into());
+    let h = start(c).await.unwrap();
+    assert_eq!(h.pin, "");
+    // no PIN needed from a plain client
+    let (mut ws, _) = connect_async(format!("ws://{}/ws", h.addr)).await.unwrap();
+    send(&mut ws, json!({"t":"hello","role":"display"})).await;
+    wait_for(&mut ws, "state", |_| true).await;
+    // but a web page on another site is still refused
+    let mut req = format!("ws://{}/ws", h.addr).into_client_request().unwrap();
+    req.headers_mut().insert("origin", "https://evil.example".parse().unwrap());
+    assert!(connect_async(req).await.is_err());
+    // DNS rebinding: a public name pointed at this machine has Origin == Host but is not a home-network name
+    let mut req = format!("ws://{}/ws", h.addr).into_client_request().unwrap();
+    req.headers_mut().insert("origin", "http://evil.com:7878".parse().unwrap());
+    req.headers_mut().insert("host", "evil.com:7878".parse().unwrap());
+    assert!(connect_async(req).await.is_err());
+    // a public IP literal as origin is refused too
+    let mut req = format!("ws://{}/ws", h.addr).into_client_request().unwrap();
+    req.headers_mut().insert("origin", "http://203.0.113.5".parse().unwrap());
+    assert!(connect_async(req).await.is_err());
+    // behind a proxy: https page whose origin equals the Host header is fine
+    let mut req = format!("ws://{}/ws", h.addr).into_client_request().unwrap();
+    req.headers_mut().insert("origin", "https://cueme.hs.lan".parse().unwrap());
+    req.headers_mut().insert("host", "cueme.hs.lan".parse().unwrap());
+    assert!(connect_async(req).await.is_ok());
+    h.stop().await;
+}

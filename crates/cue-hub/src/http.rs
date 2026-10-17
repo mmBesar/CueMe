@@ -35,7 +35,7 @@ fn auth(sh: &Shared, ip: SocketAddr, headers: &HeaderMap, q: &PinQ) -> Result<()
     if !Shared::origin_ok(hdr("origin"), hdr("host")) {
         return Err((StatusCode::FORBIDDEN, "origin not allowed").into_response());
     }
-    let ip = ip.ip();
+    let ip = crate::client_ip(ip.ip(), headers);
     if sh.locked_out(ip) {
         return Err((StatusCode::TOO_MANY_REQUESTS, "too many attempts").into_response());
     }
@@ -79,6 +79,7 @@ pub fn router(sh: S) -> Router {
         .route("/api/info", get(info))
         .route("/api/connect", get(connect))
         .route("/api/discover", get(discover))
+        .route("/api/rooms", get(rooms))
         .route("/api/native/fullscreen", post(native_fullscreen))
         .route("/api/native/quit", post(native_quit))
         .route("/api/qr.svg", get(qr))
@@ -120,7 +121,21 @@ async fn info(State(sh): State<S>) -> Json<serde_json::Value> {
         "version": crate::VERSION,
         "protocol": cue_core::protocol::PROTOCOL,
         "name": sh.name,
+        "open": sh.pin.is_empty(),
     }))
+}
+
+/// Sessions that currently have a display (the main shared one is always listed first).
+async fn rooms(
+    State(sh): State<S>,
+    ConnectInfo(ip): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Query(q): Query<PinQ>,
+) -> Response {
+    if let Err(r) = auth(&sh, ip, &headers, &q) {
+        return r;
+    }
+    ([(header::CONTENT_TYPE, "application/json")], sh.rooms_json()).into_response()
 }
 
 /// Everything a display needs to show "connect your remote" info.

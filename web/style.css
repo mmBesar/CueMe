@@ -128,6 +128,8 @@ h1.logo { font-size: 34px; margin: 18px 0 4px; letter-spacing: .5px; }
     border-right: 0; border-top: 1px solid #25324d; border-radius: 14px 14px 0 0; }
   [dir=rtl] #panel { left: 0; right: 0; border-left: 0; }
   #panel.full { height: auto; border-radius: 0; border-top: 0; }
+  /* Android: the menu takes the whole screen (back button = first button of the tab row) */
+  html.android #panel { top: 0; height: 100%; border-radius: 0; border-top: 0; }
 }
 
 /* outline list + QR scanner overlay */
@@ -172,3 +174,14 @@ h1.logo { font-size: 34px; margin: 18px 0 4px; letter-spacing: .5px; }
 select.fontsel { width: 100%; }
 /* the dot must be findable on any background */
 #fab { background: rgba(150,150,170,.55) !important; color: #fff !important; border: 1px solid rgba(255,255,255,.55) !important; }
+
+/* tab row with the back / home icon buttons: keep the four tab names readable on a phone */
+.tabs button { padding-left: 4px; padding-right: 4px; font-size: 15px; }
+.tabs button.tabicon { flex: 0 0 48px; font-size: 22px; }
+.small { font-size: 12px; margin-top: 4px; }
+.sharebox { margin-top: 8px; text-align: center; }
+/* dropdowns: same colours as the app (the desktop webview otherwise paints them white) */
+select { -webkit-appearance: none; -moz-appearance: none; appearance: none; padding-inline-end: 28px;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(100% - 17px) 50%, calc(100% - 12px) 50%; background-size: 5px 5px, 5px 5px; background-repeat: no-repeat; }
+[dir=rtl] select { background-position: 17px 50%, 12px 50%; }

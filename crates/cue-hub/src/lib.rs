@@ -118,12 +118,17 @@ pub(crate) struct Shared {
     pub session: Mutex<Session>,
     pub html: Mutex<String>,
     pub rev: AtomicU64,
-    pub lib: Library,
+    pub lib: Arc<Library>,
+    /// Extra, independent sessions ("rooms"): one per private display. The main session is this struct itself.
+    pub rooms: Arc<Mutex<HashMap<String, Arc<Shared>>>>,
+    /// "" for the main (shared) session.
+    #[allow(dead_code)]
+    pub room: String,
     pub tx: broadcast::Sender<Envelope>,
     pub next_id: AtomicU64,
     pub peers: Mutex<HashMap<u64, Role>>,
     pub last_pos: Mutex<Option<(f64, bool)>>,
-    pub fails: Mutex<HashMap<IpAddr, (u32, Instant)>>,
+    pub fails: Arc<Mutex<HashMap<IpAddr, (u32, Instant)>>>,
     pub dirty: AtomicBool,
     pub data_dir: PathBuf,
     pub library_dir: PathBuf,
@@ -147,6 +152,9 @@ impl Shared {
 
     pub fn record_fail(&self, ip: IpAddr) {
         let mut f = self.fails.lock().unwrap();
+        if f.len() > 1000 {
+            f.retain(|_, (_, t)| t.elapsed() < Duration::from_secs(60)); // forget old entries
+        }
         let e = f.entry(ip).or_insert((0, Instant::now()));
         if e.1.elapsed() >= Duration::from_secs(60) {
             *e = (0, Instant::now());
@@ -155,7 +163,94 @@ impl Shared {
     }
 
     pub fn pin_ok(&self, given: &str) -> bool {
-        auth::pin_matches(&self.pin, given)
+        // an empty PIN means the owner chose "no PIN" (CUEME_PIN=none): trusted network only
+        self.pin.is_empty() || auth::pin_matches(&self.pin, given)
+    }
+
+    /// Find (or create) an independent session by name. "" / "main" is the shared one.
+    /// Names are short and plain; at most 32 extra sessions exist at once.
+    pub fn room(self: &Arc<Self>, name: &str) -> Option<Arc<Shared>> {
+        if name.is_empty() || name == "main" {
+            return Some(self.clone());
+        }
+        if name.len() > 24 || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+            return None;
+        }
+        let mut m = self.rooms.lock().unwrap();
+        if let Some(r) = m.get(name) {
+            return Some(r.clone());
+        }
+        if m.len() >= 32 {
+            return None;
+        }
+        let (tx, _) = broadcast::channel(64);
+        let r = Arc::new(Shared {
+            id: self.id,
+            pin: self.pin.clone(),
+            name: self.name.clone(),
+            port: self.port,
+            session: Mutex::new(Session {
+                settings: Settings::default(),
+                text: String::new(),
+                name: String::new(),
+            }),
+            html: Mutex::new(String::new()),
+            rev: AtomicU64::new(1),
+            lib: self.lib.clone(),
+            rooms: self.rooms.clone(),
+            room: name.to_string(),
+            tx,
+            next_id: AtomicU64::new(1),
+            peers: Mutex::new(HashMap::new()),
+            last_pos: Mutex::new(None),
+            fails: self.fails.clone(),
+            dirty: AtomicBool::new(false),
+            data_dir: self.data_dir.clone(),
+            library_dir: self.library_dir.clone(),
+            found: self.found.clone(),
+            native: self.native.clone(),
+        });
+        m.insert(name.to_string(), r.clone());
+        // forget the room when nobody has been in it for a while (checked every 5 minutes; the map
+        // and this task hold the only two references when no connection is using it)
+        let (rooms, key, weak) = (self.rooms.clone(), name.to_string(), Arc::downgrade(&r));
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(300)).await;
+                let Some(room) = weak.upgrade() else { break };
+                let mut m = rooms.lock().unwrap();
+                let idle = room.peers.lock().unwrap().is_empty();
+                // map + `room` here = 2 strong references; more means a connection is being set up
+                if idle && Arc::strong_count(&room) <= 2 {
+                    if m.get(&key).map(|x| Arc::ptr_eq(x, &room)).unwrap_or(false) {
+                        m.remove(&key);
+                    }
+                    break;
+                }
+            }
+        });
+        Some(r)
+    }
+
+    /// Sessions that have a display connected (for the remote's "pick a session" list).
+    pub fn rooms_json(self: &Arc<Self>) -> String {
+        let count = |s: &Shared| {
+            let p = s.peers.lock().unwrap();
+            (
+                p.values().filter(|r| **r == Role::Display).count(),
+                p.values().filter(|r| **r == Role::Remote).count(),
+            )
+        };
+        let mut v = Vec::new();
+        let (d, r) = count(self);
+        v.push(serde_json::json!({ "room": "", "displays": d, "remotes": r }));
+        for (k, room) in self.rooms.lock().unwrap().iter() {
+            let (d, r) = count(room);
+            if d > 0 {
+                v.push(serde_json::json!({ "room": k, "displays": d, "remotes": r }));
+            }
+        }
+        serde_json::to_string(&v).unwrap()
     }
 
     pub fn state_json(&self) -> String {
@@ -237,17 +332,44 @@ impl Shared {
     /// drive a hub on the visitor's machine.
     pub fn origin_ok(origin: Option<&str>, host: Option<&str>) -> bool {
         let Some(o) = origin else { return true }; // not a browser: PIN rules apply
-        let Some(rest) = o.strip_prefix("http://") else {
+        // http:// (LAN) or https:// (behind a reverse proxy such as Caddy; it keeps the Host header)
+        let Some(rest) = o.strip_prefix("http://").or_else(|| o.strip_prefix("https://")) else {
             return false;
         };
-        if host.map(|h| h == rest).unwrap_or(false) {
-            return true; // same origin
+        // Same origin (the page came from this hub) is fine, but only when the name is one a home
+        // network uses. A public name that was re-pointed at this machine (DNS rebinding) is not.
+        if host.map(|h| h == rest).unwrap_or(false) && Self::local_name(rest) {
+            return true;
         }
-        let hostpart = rest.rsplit_once(':').map(|(h, _)| h).unwrap_or(rest);
-        let hostpart = hostpart.trim_start_matches('[').trim_end_matches(']');
-        hostpart == "localhost"
-            || hostpart.ends_with(".local")
-            || hostpart.parse::<std::net::IpAddr>().is_ok()
+        // another local page (the app's page talking to a hub): private addresses and local names only
+        Self::local_name(rest)
+    }
+
+    /// Host (with optional port) that belongs to a home/LAN network: loopback, private IP,
+    /// `*.local`/`.lan`/`.home.arpa`/`.internal`, a one-word name, or the host of CUEME_URL.
+    fn local_name(hostport: &str) -> bool {
+        let h = if let Some(r) = hostport.strip_prefix('[') {
+            r.split(']').next().unwrap_or("")
+        } else {
+            hostport.rsplit_once(':').map(|(h, _)| h).unwrap_or(hostport)
+        };
+        let h = h.to_ascii_lowercase();
+        if let Ok(ip) = h.parse::<IpAddr>() {
+            return match ip {
+                IpAddr::V4(v) => v.is_private() || v.is_loopback() || v.is_link_local(),
+                IpAddr::V6(v) => v.is_loopback() || (v.segments()[0] & 0xfe00) == 0xfc00 || (v.segments()[0] & 0xffc0) == 0xfe80,
+            };
+        }
+        if let Ok(u) = std::env::var("CUEME_URL") {
+            let uh = u.trim_start_matches("https://").trim_start_matches("http://").split('/').next().unwrap_or("");
+            let uh = uh.rsplit_once(':').map(|(a, _)| a).unwrap_or(uh).to_ascii_lowercase();
+            if !uh.is_empty() && uh == h {
+                return true;
+            }
+        }
+        h == "localhost"
+            || !h.contains('.')
+            || [".local", ".lan", ".home.arpa", ".internal", ".localdomain"].iter().any(|s| h.ends_with(s))
     }
 
     pub fn peers_json(&self) -> String {
@@ -263,6 +385,26 @@ impl Shared {
             .map(|ip| format!("http://{}:{}", ip, self.port))
             .collect()
     }
+}
+
+/// The client's address. Behind a reverse proxy on this machine/LAN every connection arrives from the
+/// proxy, so the proxy's X-Real-IP / X-Forwarded-For is used, but only when the connection itself
+/// comes from a loopback or private address (a stranger cannot pick their own address that way).
+pub(crate) fn client_ip(peer: IpAddr, headers: &axum::http::HeaderMap) -> IpAddr {
+    let private = match peer {
+        IpAddr::V4(v) => v.is_private() || v.is_loopback(),
+        IpAddr::V6(v) => v.is_loopback() || (v.segments()[0] & 0xfe00) == 0xfc00,
+    };
+    if !private {
+        return peer;
+    }
+    headers
+        .get("x-real-ip")
+        .or_else(|| headers.get("x-forwarded-for"))
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split(',').next())
+        .and_then(|v| v.trim().parse::<IpAddr>().ok())
+        .unwrap_or(peer)
 }
 
 /// This machine's LAN address(es). Asks the OS which local address it would use
@@ -322,6 +464,9 @@ fn load_or_create_pin(dir: &Path, wanted: Option<String>) -> String {
     // A PIN given by the user (--pin / CUEME_PIN) is used as is.
     if let Some(p) = wanted {
         let p = p.trim().to_string();
+        if p.eq_ignore_ascii_case("none") || p.eq_ignore_ascii_case("off") {
+            return String::new(); // no PIN at all (only for a network you trust)
+        }
         if !p.is_empty() {
             return p;
         }
@@ -418,12 +563,14 @@ pub async fn start(cfg: Config) -> std::io::Result<Hub> {
         session: Mutex::new(session),
         html: Mutex::new(html),
         rev: AtomicU64::new(1),
-        lib,
+        lib: Arc::new(lib),
+        rooms: Arc::new(Mutex::new(HashMap::new())),
+        room: String::new(),
         tx,
         next_id: AtomicU64::new(1),
         peers: Mutex::new(HashMap::new()),
         last_pos: Mutex::new(None),
-        fails: Mutex::new(HashMap::new()),
+        fails: Arc::new(Mutex::new(HashMap::new())),
         dirty: AtomicBool::new(false),
         data_dir: cfg.data_dir.clone(),
         library_dir: library_dir.clone(),
@@ -435,7 +582,18 @@ pub async fn start(cfg: Config) -> std::io::Result<Hub> {
         let targets = cfg
             .beacon_targets
             .clone()
-            .unwrap_or_else(|| vec![SocketAddr::from(([255, 255, 255, 255], cfg.beacon_port))]);
+            .unwrap_or_else(|| {
+                // the global broadcast, plus each local network's own broadcast address
+                // (a PC with several network cards sends the global one out of just one of them)
+                let mut t = vec![SocketAddr::from(([255, 255, 255, 255], cfg.beacon_port))];
+                for ip in lan_ips() {
+                    if let IpAddr::V4(v4) = ip {
+                        let o = v4.octets();
+                        t.push(SocketAddr::from(([o[0], o[1], o[2], 255], cfg.beacon_port)));
+                    }
+                }
+                t
+            });
         beacon::start(&shared, cfg.beacon_port, targets)
     } else {
         Vec::new()

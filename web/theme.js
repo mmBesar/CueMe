@@ -24,23 +24,46 @@
       text: 'cdd6f4', subtext1: 'bac2de', subtext0: 'a6adc8', overlay0: '6c7086', surface2: '585b70', surface1: '45475a', surface0: '313244',
       base: '1e1e2e', mantle: '181825', crust: '11111b' }
   };
-  var FLAVORS = ['latte', 'frappe', 'macchiato', 'mocha'];
+  // AMOLED: Mocha's colours on true black (pixels switch off on OLED screens)
+  var M = P.mocha, AM = { name: 'AMOLED', dark: true };
+  for (var k in M) if (k !== 'name' && k !== 'dark') AM[k] = M[k];
+  AM.base = '000000'; AM.mantle = '000000'; AM.crust = '000000';
+  AM.surface0 = '16161d'; AM.surface1 = '26262f'; AM.surface2 = '363642';
+  P.amoled = AM;
+  // Auto: follows the phone/computer light-dark setting (Latte by day, Macchiato by night)
+  P.auto = { name: 'Auto', dark: true };
+  var FLAVORS = ['latte', 'frappe', 'macchiato', 'mocha', 'amoled', 'auto'];
   var ACCENTS = ['rosewater', 'flamingo', 'pink', 'mauve', 'red', 'maroon', 'peach', 'yellow', 'green', 'teal', 'sky', 'sapphire', 'blue', 'lavender'];
   var DEFAULT = { f: 'macchiato', a: 'mauve' };
+  var N = function () { return root.CueNative || null; };
+  function systemDark() {
+    try { if (N() && N().isDark) return !!N().isDark(); } catch (e) {}
+    try { return !!(root.matchMedia && root.matchMedia('(prefers-color-scheme: dark)').matches); } catch (e) { return true; }
+  }
+  /* the real palette behind a flavour name ("auto" picks by the system setting) */
+  function pal(f) { return f === 'auto' ? P[systemDark() ? 'macchiato' : 'latte'] : P[f]; }
+  /* Android 12+ hands us its own accent colour: offered as one more swatch ("system") */
+  function sysAccent() {
+    try { var c = N() && N().accent ? String(N().accent()) : ''; return /^#[0-9a-fA-F]{6}$/.test(c) ? c.slice(1) : ''; } catch (e) { return ''; }
+  }
+  var SYS = sysAccent();
+  if (SYS) { ACCENTS.push('system'); for (var pk in P) P[pk].system = SYS; }
 
   function css(p, accent) {
     var c = function (k) { return '#' + p[k]; };
     var A = '#' + p[accent];
     var on = c('crust'); // text on accent-coloured buttons
     return [
+      ':root{color-scheme:' + (p.dark ? 'dark' : 'light') + '}',
       'html,body{background:' + c('base') + ';color:' + c('text') + '}',
+      'select option{background:' + c('mantle') + ';color:' + c('text') + '}',
       'button{background:' + c('surface0') + ';border-color:' + c('surface1') + ';color:' + c('text') + '}',
       'button:hover{background:' + c('surface1') + '}',
       'button:active{background:' + c('surface2') + '}',
       'button.primary{background:' + A + ';border-color:' + A + ';color:' + on + '}',
       'button.primary:hover,button.primary:active{background:' + A + ';opacity:.85}',
       'button.danger{background:' + c('red') + ';border-color:' + c('red') + ';color:' + on + '}',
-      'input[type=text],input[type=password],textarea,select{background:' + c('mantle') + ';border-color:' + c('surface1') + ';color:' + c('text') + '}',
+      'input[type=text],input[type=password],textarea,select{background-color:' + c('mantle') + ';border-color:' + c('surface1') + ';color:' + c('text') + '}',
       'input[type=color]{background:' + c('mantle') + ';border-color:' + c('surface1') + '}',
       'input[type=range]{accent-color:' + A + '}',
       '.sub,.muted,.ctl .lab,.big span{color:' + c('subtext0') + '}',
@@ -75,7 +98,7 @@
   var cur = { f: DEFAULT.f, a: DEFAULT.a };
 
   function valid(t) {
-    return t && P[t.f] && P[t.f][t.a] && ACCENTS.indexOf(t.a) >= 0;
+    return t && P[t.f] && ACCENTS.indexOf(t.a) >= 0 && (t.f === 'auto' ? !!pal('auto')[t.a] : !!P[t.f][t.a]);
   }
 
   function apply(t) {
@@ -84,19 +107,30 @@
     var doc = root.document;
     var st = doc.getElementById('cueme-theme');
     if (!st) { st = doc.createElement('style'); st.id = 'cueme-theme'; doc.head.appendChild(st); }
-    var text = css(P[t.f], t.a);
+    var p = pal(t.f);
+    var text = css(p, t.a);
     if (st.styleSheet) st.styleSheet.cssText = text; else st.textContent = text;
     var meta = doc.querySelector('meta[name=theme-color]');
-    if (meta) meta.setAttribute('content', '#' + P[t.f].base);
+    if (meta) meta.setAttribute('content', '#' + p.base);
+    // Android app: colour the status bar and the navigation bar like the app
+    try { if (N() && N().setBars) N().setBars('#' + p.base, !p.dark); } catch (e) {}
     return cur;
   }
+
+  // "Auto" follows the system setting live
+  try {
+    var mq = root.matchMedia && root.matchMedia('(prefers-color-scheme: dark)');
+    var onMq = function () { if (cur.f === 'auto') apply(cur); };
+    if (mq && mq.addEventListener) mq.addEventListener('change', onMq); else if (mq && mq.addListener) mq.addListener(onMq);
+  } catch (e) {}
 
   root.CueTheme = {
     palettes: P, flavors: FLAVORS, accents: ACCENTS, defaults: DEFAULT,
     valid: valid, apply: apply, css: css,
     current: function () { return { f: cur.f, a: cur.a }; },
-    hex: function (key) { return '#' + P[cur.f][key]; },
+    hex: function (key) { return '#' + pal(cur.f)[key]; },
+    pal: pal,
     /* colours for the script itself (display text/background) */
-    scriptColors: function () { return { text_color: '#' + P[cur.f].text, bg_color: '#' + P[cur.f].base }; }
+    scriptColors: function () { var p = pal(cur.f); return { text_color: '#' + p.text, bg_color: '#' + p.base }; }
   };
 }(window));

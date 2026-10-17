@@ -192,6 +192,59 @@ public class MainActivity extends Activity {
             });
             return on;
         }
+
+        /** Colour the status bar and the navigation bar like the app; `light` = dark icons for light colours. */
+        @JavascriptInterface
+        public void setBars(final String hex, final boolean light) {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    applyBars(hex, light);
+                }
+            });
+        }
+
+        /** Is the phone in dark mode? (the page's "Auto" theme follows this) */
+        @JavascriptInterface
+        public boolean isDark() {
+            return (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
+                    == Configuration.UI_MODE_NIGHT_YES;
+        }
+
+        /** Android 12+ system accent colour as #rrggbb, or "" when the phone has none. */
+        @JavascriptInterface
+        public String accent() {
+            try {
+                if (Build.VERSION.SDK_INT >= 31) {
+                    int c = getResources().getColor(android.R.color.system_accent1_400, getTheme());
+                    return String.format("#%06x", c & 0xFFFFFF);
+                }
+            } catch (Throwable ignored) {
+                // no system colours: the page simply does not offer that swatch
+            }
+            return "";
+        }
+    }
+
+    private boolean lightBars = false;
+
+    @SuppressWarnings("deprecation")
+    private void applyBars(String hex, boolean light) {
+        try {
+            int c = Color.parseColor(hex);
+            lightBars = light;
+            if (Build.VERSION.SDK_INT >= 21) {
+                getWindow().clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS
+                        | WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION);
+                getWindow().addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+                getWindow().setStatusBarColor(c);
+                getWindow().setNavigationBarColor(c);
+            }
+            if (web != null) web.setBackgroundColor(c);
+            if (!fullscreen) applyFullscreen(false);
+        } catch (Throwable ignored) {
+            // a bad colour string only means the bars keep their colour
+        }
     }
 
     @SuppressWarnings("deprecation")
@@ -205,7 +258,10 @@ public class MainActivity extends Activity {
                     | View.SYSTEM_UI_FLAG_FULLSCREEN
                     | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
         } else {
-            decor.setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
+            int flags = View.SYSTEM_UI_FLAG_VISIBLE;
+            if (lightBars && Build.VERSION.SDK_INT >= 23) flags |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+            if (lightBars && Build.VERSION.SDK_INT >= 26) flags |= View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+            decor.setSystemUiVisibility(flags);
         }
     }
 
@@ -222,7 +278,7 @@ public class MainActivity extends Activity {
             return;
         }
         web.evaluateJavascript(
-                "(function(){var c=window.__cueme;if(c&&c.canBack&&c.canBack()){c.goHome();return 'y';}return 'n';})()",
+                "(function(){var c=window.__cueme;if(c&&c.back&&c.back()){return 'y';}return 'n';})()",
                 new ValueCallback<String>() {
                     @Override
                     public void onReceiveValue(String v) {

@@ -144,7 +144,7 @@
     var proto = (location.protocol === 'https:') ? 'wss:' : 'ws:';
     var ws;
     try {
-      ws = new WebSocket(proto + '//' + self.target.host + '/ws?pin=' + encodeURIComponent(self.target.pin));
+      ws = new WebSocket(proto + '//' + self.target.host + '/ws?pin=' + encodeURIComponent(self.target.pin || '') + (self.target.room ? '&room=' + encodeURIComponent(self.target.room) : ''));
     } catch (e) { self.schedule(); return; }
     self.ws = ws;
     var opened = false;
@@ -452,7 +452,7 @@
       T0.accents.forEach(function (ac) {
         var b = el('button', { class: 'sw' + (ac === cur.a ? ' on' : ''), title: ac, 'aria-label': ac,
           onclick: function () { setTheme(cur.f, ac); draw(); } });
-        b.style.background = '#' + T0.palettes[cur.f][ac];
+        b.style.background = '#' + T0.pal(cur.f)[ac];
         sw.appendChild(b);
       });
       box.appendChild(el('div', { class: 'lab muted', text: t('theme') }));
@@ -483,13 +483,18 @@
     clear(self.root);
     var tabs = el('div', { class: 'tabs' });
     self.tabButtons = {};
+    if (self.opts.closable) {
+      // first button: close the menu and see the script again (a clear "back")
+      tabs.appendChild(el('button', { text: I.lang() === 'ar' ? '\u203A' : '\u2039', 'aria-label': t('hide'), title: t('hide'), class: 'tabicon', onclick: function () { self.opts.onClose(); } }));
+    }
     self.opts.tabs.forEach(function (name) {
       var b = el('button', { text: t(name), onclick: function () { self.setTab(name); } });
       self.tabButtons[name] = b;
       tabs.appendChild(b);
     });
     if (self.opts.closable) {
-      tabs.appendChild(el('button', { text: '✕', 'aria-label': t('hide'), style: 'flex:0 0 56px', onclick: function () { self.opts.onClose(); } }));
+      // last button: leave the display and go back to the main menu (Display / Remote)
+      tabs.appendChild(el('button', { text: '\u2302', 'aria-label': t('home'), title: t('home'), class: 'tabicon', onclick: function () { goHome(); } }));
     }
     self.body = el('div', { class: 'tabbody' });
     self.root.appendChild(tabs);
@@ -752,38 +757,67 @@
     if (tg) {
       box.appendChild(el('p', { class: 'muted', text: tg.host }));
     }
-    if (self.opts.showShare && own) {
-      xhr('GET', own.host, '/api/connect', own.pin, null, function (code, body) {
-        if (code !== 200) return;
-        var info;
-        try { info = JSON.parse(body); } catch (e) { return; }
-        box.appendChild(el('p', { text: t('scan_other') }));
-        if (info.urls && info.urls.length) {
-          var qr = el('div', { class: 'qr' }, [el('img', { alt: 'QR', src: '/api/qr.svg?text=' + encodeURIComponent(info.urls[0]) })]);
-          box.appendChild(qr);
-          info.urls.forEach(function (u) { box.appendChild(el('div', { class: 'url', dir: 'ltr', text: u })); });
-        }
-        box.appendChild(el('p', {}, [el('span', { class: 'muted', text: t('pin') + ': ' }), el('b', { text: info.pin, dir: 'ltr' })]));
-      });
-    }
+    if (self.opts.showShare && own) shareBox(box, tg || own);
     box.appendChild(el('div', { class: 'row' }, [
       el('button', { text: t('lang'), onclick: function () { I.toggle(); location.reload(); } }),
-      el('button', { text: t('back'), onclick: function () { goHome(); } })
+      el('button', { text: t('home'), onclick: function () { goHome(); } })
     ]));
   };
+
+  /* ------------------------------------------------------------ sessions + sharing */
+  var ownOpen = false; // the hub we were loaded from runs without a PIN (CUEME_PIN=none)
+  function isLoopbackHost(h) { return /^(127\.0\.0\.1|localhost|\[::1\])(:|$)/.test(h || ''); }
+  function mineId() {
+    var m = store.get('cueme_mine');
+    if (!m || !/^[A-Za-z0-9_-]{3,24}$/.test(m)) {
+      m = 'p' + Math.random().toString(36).replace(/[^a-z0-9]/g, '').slice(2, 8);
+      store.set('cueme_mine', m);
+    }
+    return m;
+  }
+  /* the address a second device should open: the page's own address (also right behind a reverse proxy) */
+  function shareUrl(host, pin, room) {
+    var base = (location.protocol === 'https:' ? 'https://' : 'http://') + host;
+    return base + '/#pin=' + encodeURIComponent(pin || '') + (room ? '&room=' + room : '');
+  }
+  /* QR + address + PIN for connecting another device to the hub in `tg` */
+  function shareBox(box, tg) {
+    xhr('GET', tg.host, '/api/connect', tg.pin, null, function (code, body) {
+      if (code !== 200) return;
+      var info = safeParse(body);
+      if (!info) return;
+      var urls = [];
+      if (!isLoopbackHost(tg.host)) urls.push(shareUrl(tg.host, info.pin, tg.room));
+      (info.urls || []).forEach(function (u) {
+        var v = u.replace(/#pin=.*$/, '#pin=' + encodeURIComponent(info.pin || '')) + (tg.room ? '&room=' + tg.room : '');
+        if (urls.indexOf(v) < 0) urls.push(v);
+      });
+      box.appendChild(el('p', { text: t('scan_other') }));
+      if (urls.length) {
+        box.appendChild(el('div', { class: 'qr' }, [el('img', { alt: 'QR', src: '/api/qr.svg?text=' + encodeURIComponent(urls[0]) })]));
+        urls.forEach(function (u) { box.appendChild(el('div', { class: 'url', dir: 'ltr', text: u.replace(/#.*$/, '') })); });
+      }
+      box.appendChild(el('p', {}, [el('span', { class: 'muted', text: t('pin') + ': ' }), el('b', { dir: 'ltr', text: info.pin ? info.pin : t('no_pin') })]));
+      if (tg.room) box.appendChild(el('p', { class: 'muted', text: t('session') + ': ' + tg.room }));
+    });
+  }
 
   /* ------------------------------------------------------------ own target */
   function ownTarget() {
     if (location.protocol !== 'http:' && location.protocol !== 'https:') return null;
     var host = location.host;
-    var m = /(?:^#|&)pin=([^&]+)/.exec(location.hash || '');
+    var m = /(?:^#|&)pin=([^&]*)/.exec(location.hash || '');
     if (m) {
       var pin = dec(m[1]);
       store.set('cueme_pin:' + host, pin);
+    }
+    if (m || /(?:^#|&)room=/.test(location.hash || '')) {
+      var rm0 = /(?:^#|&)room=([A-Za-z0-9_-]+)/.exec(location.hash || '');
+      if (rm0) store.set('cueme_room:' + host, rm0[1]); else if (m) store.set('cueme_room:' + host, '');
       try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
     }
     var saved = store.get('cueme_pin:' + host);
-    return saved ? { host: host, pin: saved } : { host: host, pin: '' };
+    return { host: host, pin: saved || '', room: store.get('cueme_room:' + host) || '' };
   }
 
   /* ------------------------------------------------------------ screens */
@@ -812,15 +846,42 @@
     card.appendChild(el('h1', { class: 'logo', text: 'CueMe' }));
     card.appendChild(el('p', { class: 'sub', text: 'Teleprompter · ملقّن نصي' }));
     if (msg) card.appendChild(el('p', { class: 'err', text: msg }));
+    var served = own && !isLoopbackHost(own.host); // opened from a server (Docker / another PC), not from the app itself
+    if (own) xhr('GET', own.host, '/api/info', '', null, function (code, body) {
+      var i = code === 200 ? safeParse(body) : null;
+      if (i) ownOpen = !!i.open;
+    });
     card.appendChild(el('button', {
       class: 'big', onclick: function () {
-        if (own && own.pin) startRole(own, 'display');
-        else connectForm('display', own);
+        // opened from a hub: Display just starts (asking only for the PIN the first time, never for an address)
+        if (own && (own.pin || ownOpen)) startRole(own, 'display');
+        else connectForm('display', own, null, null, true);
       }
     }, [el('b', { text: t('display') }), el('span', { text: t('display_hint') })]));
     card.appendChild(el('button', {
       class: 'big', onclick: function () { remoteChooser(own); }
     }, [el('b', { text: t('remote') }), el('span', { text: t('remote_hint') })]));
+    if (served) {
+      // which session this browser uses on the server: the shared one, or its own private one
+      var sel = el('select', { 'aria-label': t('session') });
+      var opts = [['', t('shared_session')], ['mine', t('own_session')]];
+      if (own.room && own.room !== mineId()) opts.push([own.room, t('session') + ' ' + own.room]);
+      opts.forEach(function (o) { sel.appendChild(el('option', { value: o[0], text: o[1] })); });
+      sel.value = !own.room ? '' : (own.room === mineId() ? 'mine' : own.room);
+      sel.addEventListener('change', function () {
+        var r = sel.value === 'mine' ? mineId() : sel.value;
+        store.set('cueme_room:' + own.host, r);
+        own.room = r;
+        clear(sbox);                       // the QR must point at the session just chosen
+        if (own.pin) shareBox(sbox, own);
+      });
+      card.appendChild(el('div', { class: 'ctl' }, [el('div', { class: 'lab muted', text: t('session') }), sel,
+        el('div', { class: 'muted small', text: t('session_hint') })]));
+      var sbox = el('div', { class: 'sharebox' });
+      card.appendChild(sbox);
+      if (own.pin) shareBox(sbox, own);
+      else xhr('GET', own.host, '/api/info', '', null, function (c, b) { var i = c === 200 ? safeParse(b) : null; if (i && i.open) shareBox(sbox, own); });
+    }
     card.appendChild(el('div', { class: 'row' }, [
       el('button', { text: t('lang'), onclick: function () { I.toggle(); goHome(); } })
     ]));
@@ -833,12 +894,13 @@
     xhr('GET', tg.host, '/api/library', tg.pin, null, function (code) {
       if (code === 200) {
         store.set('cueme_last', JSON.stringify(tg));
+        if (tg.host === location.host) store.set('cueme_pin:' + tg.host, tg.pin);
         startRole(tg, role);
       } else onFail(code === 401 ? t('bad_pin') : t('offline'));
     });
   }
 
-  function connectForm(role, own, preset, msg) {
+  function connectForm(role, own, preset, msg, lockHost) {
     atHome = false;
     stopChooserTimer();
     var last = preset || safeParse(store.get('cueme_last')) || {};
@@ -846,11 +908,11 @@
     var pin = el('input', { type: 'text', dir: 'ltr', inputmode: 'numeric', pattern: '[0-9]*', placeholder: t('pin'), value: last.pin || '', autocapitalize: 'off', autocorrect: 'off' });
     var err = el('p', { class: 'err', text: msg || '' });
     function go() {
-      var h = host.value.trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+      var h = lockHost && own ? own.host : host.value.trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
       if (!h) { host.focus(); return; }
-      if (h.indexOf(':') < 0) h += ':7878';
+      if (h.indexOf(':') < 0 && !lockHost) h += ':7878';
       err.textContent = t('connecting');
-      tryConnect({ host: h, pin: pin.value.trim() }, role, function (m) { err.textContent = m; });
+      tryConnect({ host: h, pin: pin.value.trim(), room: lockHost && own ? own.room : '' }, role, function (m) { err.textContent = m; });
     }
     pin.addEventListener('keydown', function (e) { if (e.keyCode === 13) go(); });
     clear(app);
@@ -859,10 +921,10 @@
     buttons.push(el('button', { text: t('back'), onclick: function () { goHome(); } }));
     app.appendChild(el('div', { class: 'screen' }, el('div', { class: 'card' }, [
       el('h1', { class: 'logo', text: t(role) }),
-      el('div', { class: 'ctl' }, host), el('div', { class: 'ctl' }, pin), err,
+      lockHost ? el('div', { class: 'muted', dir: 'ltr', text: own ? own.host : '' }) : el('div', { class: 'ctl' }, host), el('div', { class: 'ctl' }, pin), err,
       el('div', { class: 'row' }, buttons)
     ])));
-    setTimeout(function () { try { (host.value && !pin.value ? pin : host).focus(); } catch (e) {} }, 50);
+    setTimeout(function () { try { (lockHost || (host.value && !pin.value) ? pin : host).focus(); } catch (e) {} }, 50);
   }
 
   /* ------------------------------------------------------------ QR scanner (camera) */
@@ -879,8 +941,8 @@
 
   /* the code on a display holds  http://192.168.1.20:7878/#pin=123  */
   function parseScanned(text) {
-    var m = /^https?:\/\/([^\/#?\s]+)[^#\s]*#pin=([^&\s]+)/i.exec(text || '');
-    return m ? { host: m[1], pin: dec(m[2]) } : null;
+    var m = /^https?:\/\/([^\/#?\s]+)[^#\s]*#pin=([^&\s]*)(?:&room=([A-Za-z0-9_-]+))?/i.exec(text || '');
+    return m ? { host: m[1], pin: dec(m[2]), room: m[3] || '' } : null;
   }
 
   function openScanner(onTarget) {
@@ -938,11 +1000,13 @@
     if (canScan()) {
       card.appendChild(el('button', { class: 'big', onclick: function () { scanAndConnect(); } }, [el('b', { text: t('scan') }), el('span', { text: t('scan_hint') })]));
     }
-    if (own && own.pin) {
+    if (own && (own.pin || ownOpen)) {
       card.appendChild(el('button', {
         class: 'peer', text: t('this_device') + ' - ' + own.host, onclick: function () { startRole(own, 'remote'); }
       }));
     }
+    var roomsBox = el('div');
+    card.appendChild(roomsBox);
     card.appendChild(el('h3', { text: t('nearby') }));
     card.appendChild(list);
     card.appendChild(el('div', { class: 'row' }, [
@@ -952,7 +1016,23 @@
     app.appendChild(el('div', { class: 'screen' }, card));
     // other CueMe apps announce themselves every 2 s: keep the list fresh while this screen is open
     function refresh() {
-      if (!own || !own.pin) return;
+      if (!own || !(own.pin || ownOpen)) return;
+      // sessions on this server that have a display (the shared one and private ones)
+      xhr('GET', own.host, '/api/rooms', own.pin, null, function (code, body) {
+        if (!chooserTimer || !roomsBox.parentNode) return;
+        var rs = code === 200 ? (safeParse(body) || []) : [];
+        clear(roomsBox);
+        var extra = rs.filter(function (r) { return r.room; });
+        if (!extra.length) return;
+        roomsBox.appendChild(el('h3', { text: t('sessions_here') }));
+        rs.forEach(function (r) {
+          if (r.room && !r.displays) return;
+          roomsBox.appendChild(el('button', {
+            class: 'peer', text: (r.room ? t('session') + ' ' + r.room : t('shared_session')) + ' (' + r.displays + ' ' + t('display').toLowerCase() + ')',
+            onclick: function () { startRole({ host: own.host, pin: own.pin, room: r.room }, 'remote'); }
+          }));
+        });
+      });
       xhr('GET', own.host, '/api/discover', own.pin, null, function (code, body) {
         if (!chooserTimer || !list.parentNode) return;
         var peers = code === 200 ? (safeParse(body) || []) : [];
@@ -1421,7 +1501,11 @@
       case 'heading': this.heading(m.dir); break;
       case 'goto_heading': this.gotoHeading(m.index); break;
       case 'top': e.target = 0; break;
-      case 'fullscreen': toggleFullscreen(); break;
+      case 'fullscreen':
+        // a remote asking for fullscreen wants a clean screen: close any menu, bar or help first
+        this.togglePanel(false); this.toggleBar(false);
+        (function () { var h = document.querySelector('.help'); if (h && h.parentNode) h.parentNode.removeChild(h); }());
+        toggleFullscreen(); break;
       default: break;
     }
     void self;
@@ -1658,10 +1742,16 @@
   /* expose a tiny surface for tests */
   window.__cueme = {
     state: S, setFs: setFsClass, setTheme: setTheme, loadTheme: loadTheme, adjust: adjust, goHome: goHome, canBack: function () { return !atHome; },
+    back: function () {
+      if (atHome) return false;
+      if (view && view.panel && view.togglePanel && view.panel.root.className.indexOf('open') >= 0) { view.togglePanel(false); return true; }
+      goHome(); return true;
+    },
     decodeCanvas: decodeCanvas, parseScanned: parseScanned, canScan: canScan
   };
 
   /* ------------------------------------------------------------ boot */
+  if (/Android/i.test(navigator.userAgent)) document.documentElement.className = 'android';
   T0.apply(loadTheme());
   document.documentElement.dir = I.lang() === 'ar' ? 'rtl' : 'ltr';
   goHome();

@@ -87,8 +87,12 @@ async fn main() {
         }
     };
     println!("CueMe hub {} listening on {}", cue_hub::VERSION, hub.addr);
-    println!("PIN: {}", hub.pin);
+    if hub.pin.is_empty() { println!("PIN: none (open network: anyone who can reach this port can use it)"); } else { println!("PIN: {}", hub.pin); }
     println!("Library: {}", cfg.library_dir.display());
+    // behind a reverse proxy the address people use is not the container's: CUEME_URL=https://cueme.example.lan
+    if let Ok(u) = std::env::var("CUEME_URL") {
+        println!("Open: {}/#pin={}", u.trim_end_matches('/'), hub.pin);
+    }
     for u in &hub.lan_urls {
         println!("Open: {u}/#pin={}", hub.pin);
     }

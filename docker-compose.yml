@@ -1,29 +1,43 @@
 # CueMe hub in Docker: the same app you see on the desktop, served as a web page.
-# Start it:   docker compose up -d
-# Find the PIN: docker compose logs cueme   (look for the line "PIN: 123")
-# Open it:    http://<this-machine-ip>:7878   from any browser (phone, tablet, laptop)
+#
+#   Start it:     docker compose up -d
+#   Read the PIN: docker compose logs cueme      (a line like "PIN: 123")
+#   Open it:      http://<this-machine-ip>:7878   (or your own address behind Caddy, see below)
+#
+# Two ways to run it. Pick ONE (the default is A):
+#   A) Behind a reverse proxy such as Caddy (this file as it is). The proxy reaches the container
+#      by its name over a shared Docker network. Devices connect through your address, QR or PIN.
+#      Automatic "Nearby" discovery does not work in this mode (Docker hides the Wi-Fi broadcast).
+#   B) Host network: the apps find this hub automatically in their "Nearby" list.
+#      The proxy then has to point at the machine's IP (reverse_proxy 10.10.10.10:7878).
 services:
   cueme:
     image: ghcr.io/mmbesar/cueme:latest
     container_name: cueme
     restart: unless-stopped
 
-    # Host networking lets the Android and desktop apps FIND this hub automatically
-    # (discovery uses UDP broadcast, which Docker's normal bridge network hides).
-    # The web page is then on port 7878 of this machine.
-    # If you do not need automatic discovery, delete this line and use the "ports" block below.
-    network_mode: host
+    # ---- A) bridge network + published port (default) ----
+    ports:
+      - "7878:7878"             # web page / app connection (remove it if only Caddy should reach it)
+    networks:
+      - proxy                   # the same network your Caddy container is on (rename it to yours)
 
-    # ports:                    # (only when network_mode is NOT host)
-    #   - "7878:7878"           # the web page / app connection
+    # ---- B) host network (uncomment this and remove "ports" and "networks" above/below) ----
+    # network_mode: host
 
     environment:
       - PUID=1000               # run as this user id  (see `id -u`)
       - PGID=1000               # run as this group id (see `id -g`)
       - TZ=Africa/Cairo         # your timezone
       # - CUEME_PIN=123         # fixed PIN (up to 3 digits). Leave out for a saved random one.
+      # - CUEME_PIN=none        # NO PIN at all: every device on your network just works. Only for a trusted LAN.
       # - CUEME_NAME=Studio     # name shown in the device list
+      # - CUEME_URL=https://cueme.hs.lan   # the address people use (shown in the logs)
 
     volumes:
       - ./config:/config        # PIN and settings
       - ./scripts:/scripts      # your .md / .txt scripts (Save writes here)
+
+networks:
+  proxy:
+    external: true              # created once with: docker network create proxy

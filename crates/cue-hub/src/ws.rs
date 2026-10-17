@@ -17,12 +17,17 @@ use tokio::sync::broadcast::error::RecvError;
 #[derive(Deserialize)]
 pub struct Q {
     pin: Option<String>,
+    room: Option<String>,
 }
 
 pub fn announce_library(sh: &Shared) {
     if let Ok(files) = sh.lib.list() {
         let j = serde_json::to_string(&ServerMsg::Library { files }).unwrap();
-        sh.send(0, To::All, false, j);
+        sh.send(0, To::All, false, j.clone());
+        // private sessions see library changes too
+        for r in sh.rooms.lock().unwrap().values() {
+            r.send(0, To::All, false, j.clone());
+        }
     }
 }
 
@@ -37,7 +42,7 @@ pub async fn handler(
     if !Shared::origin_ok(hdr("origin"), hdr("host")) {
         return (StatusCode::FORBIDDEN, "origin not allowed").into_response();
     }
-    let ip = addr.ip();
+    let ip = crate::client_ip(addr.ip(), &headers);
     if sh.locked_out(ip) {
         return (StatusCode::TOO_MANY_REQUESTS, "too many attempts").into_response();
     }
@@ -45,8 +50,12 @@ pub async fn handler(
         sh.record_fail(ip);
         return (StatusCode::UNAUTHORIZED, "bad pin").into_response();
     }
+    // the PIN is checked first; only then may a session be looked up or created
+    let Some(room) = sh.room(q.room.as_deref().unwrap_or("")) else {
+        return (StatusCode::BAD_REQUEST, "bad or too many sessions").into_response();
+    };
     ws.max_message_size(4 * 1024 * 1024)
-        .on_upgrade(move |s| session(s, sh))
+        .on_upgrade(move |s| session(s, room))
 }
 
 fn finite01(p: f64) -> f64 {
