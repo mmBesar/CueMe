@@ -1,0 +1,52 @@
+# CI: runs on every push to main and on pull requests.
+# It runs all the tests; it does not build release files (release.yml does that).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # 1) Rust: the core library + the hub (network server) + the Android bridge
+  rust:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Rust tests
+        run: cargo test --workspace
+
+  # 2) Web UI: unit tests, old-browser syntax check, and the full browser test
+  #    (a real hub + a real Chromium: one display page, one remote page)
+  web:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install test tools
+        run: npm ci
+      - name: Unit tests (scroll engine, ES5 check)
+        run: npm test
+      - name: Build the hub
+        run: cargo build -p cue-hub
+      - name: Install Chromium
+        run: npx playwright-core install --with-deps chromium
+      - name: End-to-end test
+        run: npm run e2e
+
+  # 3) Linux desktop app: make sure it still compiles (the full bundle is built in release.yml)
+  desktop-check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install GTK / WebKit
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev librsvg2-dev patchelf
+      - name: Check the desktop app compiles
+        run: cargo check --manifest-path src-tauri/Cargo.toml

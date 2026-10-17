@@ -1,0 +1,26 @@
+[package]
+name = "cueme"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["mmBesar"]
+description = "CueMe teleprompter - desktop app (Linux)"
+repository = "https://github.com/mmBesar/CueMe"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["image-png"] }
+cue-hub = { path = "../crates/cue-hub" }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+opt-level = "s"
+panic = "abort"
+
+# This crate is its own workspace so the pure-Rust crates build and test
+# without GTK/WebKit installed.
+[workspace]

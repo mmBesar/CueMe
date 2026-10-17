@@ -1,0 +1,71 @@
+plugins {
+    id 'com.android.application'
+}
+
+def ver = System.getenv('CUEME_VERSION') ?: '0.1.0'
+def verCode = (System.getenv('CUEME_VERSION_CODE') ?: '1').toInteger()
+def haveKeystore = System.getenv('CUEME_KEYSTORE') && new File(System.getenv('CUEME_KEYSTORE')).exists()
+
+android {
+    namespace 'app.cueme.android'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'app.cueme'
+        versionCode verCode
+        versionName ver
+    }
+
+    // Two builds of the same app:
+    //   legacy = Android 6.0+ (API 23), all CPU types, no newer-Android extras
+    //   modern = Android 8.0+ (API 26), 64-bit ARM and x86_64
+    flavorDimensions 'api'
+    productFlavors {
+        legacy {
+            dimension 'api'
+            minSdk 23
+            targetSdk 28
+            versionNameSuffix '-android6'
+            ndk { abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86_64', 'x86' }
+        }
+        modern {
+            dimension 'api'
+            minSdk 26
+            targetSdk 34
+            ndk { abiFilters 'arm64-v8a', 'x86_64' }
+        }
+    }
+
+    signingConfigs {
+        if (haveKeystore) {
+            release {
+                storeFile file(System.getenv('CUEME_KEYSTORE'))
+                storePassword System.getenv('CUEME_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('CUEME_KEY_ALIAS')
+                keyPassword System.getenv('CUEME_KEY_PASSWORD')
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            // No release key supplied: sign with the debug key so the APK is installable.
+            signingConfig haveKeystore ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+
+    packaging {
+        jniLibs { useLegacyPackaging = true }
+    }
+}

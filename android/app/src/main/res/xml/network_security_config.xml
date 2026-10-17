@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- CueMe talks plain HTTP/WebSocket on your own network (the hub is protected by a PIN).
+     API 23 ignores this file and uses android:usesCleartextTraffic instead. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

@@ -1,0 +1,319 @@
+# Release: builds every download and publishes a GitHub Release.
+#
+# Start it by pushing a tag like v0.1.0 (or run it by hand from the Actions tab).
+# All builds run on NATIVE runners (no QEMU):
+#   amd64  -> ubuntu-24.04
+#   arm64  -> ubuntu-24.04-arm
+#   riscv64 -> ubuntu-24.04-riscv   (RISE RISC-V runners)
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ------------------------------------------------------------------
+  # Tests first. If these fail nothing is built.
+  # ------------------------------------------------------------------
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - run: cargo test --workspace
+      - run: npm ci && npm test
+
+  # ------------------------------------------------------------------
+  # Headless hub: ONE static file per CPU type (no libraries needed).
+  # Runs on a Raspberry Pi / server / in Docker; open it from any browser or CueMe app.
+  # ------------------------------------------------------------------
+  hub:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: amd64,   runner: ubuntu-24.04,         target: x86_64-unknown-linux-musl }
+          - { arch: arm64,   runner: ubuntu-24.04-arm,     target: aarch64-unknown-linux-musl }
+          - { arch: riscv64, runner: ubuntu-24.04-riscv,   target: riscv64gc-unknown-linux-musl }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Make sure Rust is installed
+        run: |
+          if ! command -v cargo >/dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+      - name: Add the static (musl) target
+        if: matrix.arch != 'riscv64'
+        run: |
+          sudo apt-get update && sudo apt-get install -y musl-tools
+          rustup target add ${{ matrix.target }}
+      - name: Build
+        if: matrix.arch != 'riscv64'
+        run: cargo build --release -p cue-hub --target ${{ matrix.target }}
+      # On riscv64 the Ubuntu "cc" is not a musl compiler (that gave "undefined reference to pow"),
+      # so build inside Alpine, whose compiler and C library are the real musl, fully static.
+      - name: Build (riscv64, inside Alpine)
+        if: matrix.arch == 'riscv64'
+        run: |
+          docker run --rm -v "$PWD":/w -w /w alpine:edge sh scripts/build-hub-alpine.sh "$(id -u)" "$(id -g)"
+          mkdir -p target/${{ matrix.target }}/release
+          cp target/alpine-out/cueme-serve target/${{ matrix.target }}/release/cueme-serve
+          (file target/${{ matrix.target }}/release/cueme-serve || true)
+      - name: Smoke test (start it, ask it who it is)
+        run: |
+          BIN=target/${{ matrix.target }}/release/cueme-serve
+          "$BIN" --bind 127.0.0.1:7878 --data "$RUNNER_TEMP/cueme" --pin SMOKETEST --no-discovery &
+          sleep 2
+          curl -fsS http://127.0.0.1:7878/api/info
+          kill %1
+      - name: Name the file
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/cueme-serve dist/cueme-serve-linux-${{ matrix.arch }}
+      - uses: actions/upload-artifact@v6
+        with:
+          name: hub-${{ matrix.arch }}
+          path: dist/*
+
+  # ------------------------------------------------------------------
+  # Linux desktop app (window + hub), amd64 and arm64: AppImage + .deb + plain binary.
+  # Built on Ubuntu 22.04 (glibc 2.35) on purpose: the result then runs on Debian 12,
+  # Ubuntu 22.04+, Fedora, etc. Building on a newer Ubuntu would demand a newer glibc.
+  # ------------------------------------------------------------------
+  desktop:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: amd64, runner: ubuntu-22.04 }
+          - { arch: arm64, runner: ubuntu-22.04-arm }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install GTK / WebKit and packaging tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
+            librsvg2-dev patchelf file desktop-file-utils
+      - name: Install the Tauri build tool
+        run: npm install -g @tauri-apps/cli@2
+      - name: Build (AppImage + deb)
+        env:
+          NO_STRIP: "true"                # newer toolchains confuse the AppImage "strip" step
+          APPIMAGE_EXTRACT_AND_RUN: "1"   # runners have no FUSE
+        run: tauri build --bundles appimage,deb
+      - name: Collect files
+        run: |
+          mkdir -p dist
+          cp src-tauri/target/release/bundle/appimage/*.AppImage "dist/CueMe-linux-${{ matrix.arch }}.AppImage"
+          cp src-tauri/target/release/bundle/deb/*.deb "dist/cueme-linux-${{ matrix.arch }}.deb"
+          tar -C src-tauri/target/release -czf "dist/cueme-desktop-linux-${{ matrix.arch }}.tar.gz" cueme
+      - uses: actions/upload-artifact@v6
+        with:
+          name: desktop-${{ matrix.arch }}
+          path: dist/*
+
+  # ------------------------------------------------------------------
+  # Linux desktop app on riscv64. Built natively on a RISE RISC-V runner.
+  # The Tauri tool has no riscv64 build and linuxdeploy (the AppImage library
+  # bundler) has none either, so here we build the program with cargo and make
+  # a "thin" AppImage that uses the system WebKitGTK (package libwebkit2gtk-4.1).
+  # If the AppImage step cannot get a riscv64 AppImage runtime, the tarball is
+  # still published.
+  # ------------------------------------------------------------------
+  desktop-riscv64:
+    needs: test
+    runs-on: ubuntu-24.04-riscv
+    steps:
+      - uses: actions/checkout@v6
+      - name: Make sure Rust is installed
+        run: |
+          if ! command -v cargo >/dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+      - name: Install GTK / WebKit
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
+            librsvg2-dev patchelf squashfs-tools file
+      - name: Build
+        run: cargo build --release --manifest-path src-tauri/Cargo.toml
+      - name: Tarball
+        run: |
+          mkdir -p dist
+          tar -C src-tauri/target/release -czf dist/cueme-desktop-linux-riscv64.tar.gz cueme
+      - name: Debian package
+        run: scripts/make-deb.sh riscv64 src-tauri/target/release/cueme dist/cueme-linux-riscv64.deb
+      - name: Thin AppImage (best effort)
+        continue-on-error: true
+        run: scripts/appimage-thin.sh riscv64 src-tauri/target/release/cueme dist/CueMe-linux-riscv64.AppImage
+      - uses: actions/upload-artifact@v6
+        with:
+          name: desktop-riscv64
+          path: dist/*
+
+  # ------------------------------------------------------------------
+  # Android: two APKs (Android 6+ and modern), same app, Rust hub inside.
+  # ------------------------------------------------------------------
+  android:
+    needs: test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Rust Android targets
+        run: rustup target add armv7-linux-androideabi aarch64-linux-android x86_64-linux-android i686-linux-android
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+      - name: Android SDK pieces
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-34" "build-tools;34.0.0" >/dev/null
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Gradle
+        run: |
+          curl -fsSL https://services.gradle.org/distributions/gradle-8.9-bin.zip -o "$RUNNER_TEMP/gradle.zip"
+          unzip -q "$RUNNER_TEMP/gradle.zip" -d "$HOME"
+          echo "$HOME/gradle-8.9/bin" >> "$GITHUB_PATH"
+      - name: Optional release signing key (repository secrets)
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            echo "CUEME_KEYSTORE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+            echo "CUEME_KEYSTORE_PASSWORD=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >> "$GITHUB_ENV"
+            echo "CUEME_KEY_ALIAS=${{ secrets.ANDROID_KEY_ALIAS }}" >> "$GITHUB_ENV"
+            echo "CUEME_KEY_PASSWORD=${{ secrets.ANDROID_KEY_PASSWORD }}" >> "$GITHUB_ENV"
+          else
+            echo "No signing secrets: APKs will be signed with the debug key (installable, but updates need the same key)."
+          fi
+      - name: Build both APKs
+        env:
+          # tag v0.2.3 -> versionName 0.2.3, versionCode 20300 (always grows, so updates install over old ones)
+          CUEME_VERSION_FROM_REF: ${{ github.ref_name }}
+        run: |
+          V="${CUEME_VERSION_FROM_REF#v}"
+          if echo "$V" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            export CUEME_VERSION="$V"
+            export CUEME_VERSION_CODE=$(echo "$V" | awk -F. '{print $1*10000+$2*100+$3}')
+          fi
+          scripts/build-android.sh
+      - name: Collect files
+        run: |
+          mkdir -p dist
+          cp android/app/build/outputs/apk/legacy/release/*.apk dist/CueMe-android6.apk
+          cp android/app/build/outputs/apk/modern/release/*.apk dist/CueMe-android-modern.apk
+      - uses: actions/upload-artifact@v6
+        with:
+          name: android
+          path: dist/*
+
+  # ------------------------------------------------------------------
+  # Docker image of the headless hub (amd64 / arm64 / riscv64).
+  # Built per CPU on a native runner, smoke-tested, then joined into one tag.
+  # ------------------------------------------------------------------
+  docker:
+    needs: hub
+    if: ${{ !cancelled() }}   # one CPU type failing must not block the others
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: amd64,   runner: ubuntu-24.04 }
+          - { arch: arm64,   runner: ubuntu-24.04-arm }
+          - { arch: riscv64, runner: ubuntu-24.04-riscv }
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v7
+        with:
+          name: hub-${{ matrix.arch }}
+          path: docker/
+      - name: Lowercase image name (GHCR needs it)
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/cueme" >> "$GITHUB_ENV"
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push this CPU's image
+        uses: docker/build-push-action@v7
+        with:
+          context: docker
+          file: docker/Dockerfile
+          platforms: linux/${{ matrix.arch }}
+          build-args: HUB_BINARY=cueme-serve-linux-${{ matrix.arch }}
+          push: true
+          sbom: true
+          tags: ${{ env.IMAGE }}:${{ github.sha }}-${{ matrix.arch }}
+      - name: Smoke test the image we just pushed
+        run: |
+          docker run -d --name t -p 7878:7878 -e CUEME_PIN=SMOKETEST -e CUEME_NO_DISCOVERY=1 "$IMAGE:${GITHUB_SHA}-${{ matrix.arch }}"
+          for i in $(seq 1 20); do curl -fsS http://127.0.0.1:7878/api/info && exit 0; sleep 1; done
+          docker logs t
+          exit 1
+
+  docker-manifest:
+    needs: docker
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Join the per-CPU images into one tag (whichever were built)
+        run: |
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/cueme"
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then TAGS="-t $IMAGE:latest -t $IMAGE:$VERSION"; else TAGS="-t $IMAGE:dev"; fi
+          SRC=""
+          for a in amd64 arm64 riscv64; do
+            if docker buildx imagetools inspect "$IMAGE:${GITHUB_SHA}-$a" >/dev/null 2>&1; then SRC="$SRC $IMAGE:${GITHUB_SHA}-$a"; else echo "no $a image (that build failed or was skipped)"; fi
+          done
+          [ -n "$SRC" ] || { echo "no images at all"; exit 1; }
+          docker buildx imagetools create $TAGS $SRC
+
+  # ------------------------------------------------------------------
+  # Publish the GitHub Release (only for tags). Whatever finished is attached.
+  # ------------------------------------------------------------------
+  release:
+    needs: [hub, desktop, desktop-riscv64, android]
+    if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: cd dist && sha256sum * > SHA256SUMS.txt && ls -la
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "CueMe $GITHUB_REF_NAME" --generate-notes

@@ -1,0 +1,20 @@
+# build output
+/target/
+/src-tauri/target/
+/src-tauri/gen/
+/dist/
+/android/.gradle/
+/android/build/
+/android/app/build/
+/android/local.properties
+# native libraries are built by scripts/build-android.sh
+/android/app/src/main/jniLibs/
+# tools
+node_modules/
+*.log
+.DS_Store
+
+# signing keys must never be committed
+*.jks
+*.keystore
+*.p12

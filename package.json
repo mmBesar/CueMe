@@ -1,0 +1,17 @@
+{
+  "name": "cueme-tests",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Tests and tooling for the CueMe web UI (the app itself ships no npm dependencies).",
+  "license": "MIT",
+  "type": "commonjs",
+  "scripts": {
+    "test": "node --test tests-js/engine.test.js tests-js/syntax.test.js",
+    "e2e": "node tests-js/e2e.mjs",
+    "icons": "node scripts/make-icons.mjs"
+  },
+  "devDependencies": {
+    "acorn": "^8.14.0",
+    "playwright-core": "^1.50.0"
+  }
+}

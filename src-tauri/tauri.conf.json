@@ -1,0 +1,40 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "cueme",
+  "version": "0.1.0",
+  "identifier": "app.cueme.desktop",
+  "build": {
+    "frontendDist": "../web-shell"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "appimage",
+      "deb"
+    ],
+    "category": "Utility",
+    "shortDescription": "Teleprompter with Arabic/English Markdown, display or remote",
+    "longDescription": "CueMe is a teleprompter that is both display and remote. Run it on Linux or Android; control any CueMe from any other.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.png"
+    ],
+    "linux": {
+      "appimage": {
+        "bundleMediaFramework": false
+      },
+      "deb": {
+        "desktopTemplate": "desktop-template.desktop"
+      }
+    }
+  }
+}
