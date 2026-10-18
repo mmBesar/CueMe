@@ -211,6 +211,36 @@ public class MainActivity extends Activity {
                     == Configuration.UI_MODE_NIGHT_YES;
         }
 
+        /** Android 12+ system palette as "name=#rrggbb,..." (neutral shades and accent), or "" without it. */
+        @JavascriptInterface
+        public String colors() {
+            try {
+                if (Build.VERSION.SDK_INT >= 31) {
+                    int[] ids = {
+                        android.R.color.system_neutral1_10, android.R.color.system_neutral1_50,
+                        android.R.color.system_neutral1_100, android.R.color.system_neutral1_200,
+                        android.R.color.system_neutral1_300, android.R.color.system_neutral1_400,
+                        android.R.color.system_neutral1_500, android.R.color.system_neutral1_600,
+                        android.R.color.system_neutral1_700, android.R.color.system_neutral1_800,
+                        android.R.color.system_neutral1_900, android.R.color.system_neutral1_1000,
+                        android.R.color.system_accent1_200, android.R.color.system_accent1_400,
+                        android.R.color.system_accent1_600 };
+                    String[] names = { "n10", "n50", "n100", "n200", "n300", "n400", "n500", "n600", "n700",
+                        "n800", "n900", "n1000", "a200", "a400", "a600" };
+                    StringBuilder sb = new StringBuilder();
+                    for (int i = 0; i < ids.length; i++) {
+                        int c = getResources().getColor(ids[i], getTheme());
+                        if (i > 0) sb.append(',');
+                        sb.append(names[i]).append("=#").append(String.format("%06x", c & 0xFFFFFF));
+                    }
+                    return sb.toString();
+                }
+            } catch (Throwable ignored) {
+                // no system colours: "Auto" then only follows light/dark
+            }
+            return "";
+        }
+
         /** Android 12+ system accent colour as #rrggbb, or "" when the phone has none. */
         @JavascriptInterface
         public String accent() {

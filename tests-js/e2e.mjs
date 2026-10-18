@@ -507,6 +507,8 @@ await T('display menu: back closes it, home returns to the main menu; remote ful
   await p.waitForSelector('#panel.open');
   await sendFromRemote_fullscreen(p);
   await p.waitForFunction(() => !document.querySelector('#panel.open'));
+  // no tap on this page: real fullscreen is refused, so the clean screen is used instead
+  await p.waitForFunction(() => document.body.className.indexOf('fs') >= 0);
   await p.keyboard.press('m');
   await p.waitForSelector('#panel.open');
   await p.locator('#panel .tabs button.tabicon').nth(1).click();

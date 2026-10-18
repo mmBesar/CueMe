@@ -334,17 +334,21 @@
       });
       return;
     }
-    // 3) A plain browser only allows fullscreen right after a tap/key on that page.
+    // 3) A plain browser only allows REAL fullscreen right after a tap/key on that very page, which a
+    //    remote cannot give. So when it refuses, switch to the clean screen (script only, no buttons);
+    //    one F11 in that browser makes it full for good.
+    function soft() { setFsClass(true); toast(t('fs_soft')); }
     try {
-      var r;
-      if (fsElement()) {
-        r = (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+      if (document.fullscreenElement || document.webkitFullscreenElement) {
+        (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+      } else if (nativeFs) {
+        setFsClass(false);
       } else {
         var d = document.documentElement;
-        r = (d.requestFullscreen || d.webkitRequestFullscreen).call(d);
+        var r = (d.requestFullscreen || d.webkitRequestFullscreen).call(d);
+        if (r && r.catch) r.catch(soft);
       }
-      if (r && r.catch) r.catch(function () { toast(t('fs_tap')); });
-    } catch (e) { toast(t('fs_tap')); }
+    } catch (e) { soft(); }
   }
   function onFsChange() {
     document.body.className = (document.fullscreenElement || document.webkitFullscreenElement) ? 'fs' : '';
@@ -446,7 +450,7 @@
       var fl = el('div', { class: 'row' });
       T0.flavors.forEach(function (f) {
         fl.appendChild(el('button', { class: 'fl' + (f === cur.f ? ' on' : ''), text: T0.palettes[f].name,
-          onclick: function () { setTheme(f, cur.a); draw(); } }));
+          onclick: function () { setTheme(f, f === 'auto' && T0.accents.indexOf('system') >= 0 ? 'system' : cur.a); draw(); } }));
       });
       var sw = el('div', { class: 'swatches' });
       T0.accents.forEach(function (ac) {

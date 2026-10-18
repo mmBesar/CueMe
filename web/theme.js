@@ -40,8 +40,35 @@
     try { if (N() && N().isDark) return !!N().isDark(); } catch (e) {}
     try { return !!(root.matchMedia && root.matchMedia('(prefers-color-scheme: dark)').matches); } catch (e) { return true; }
   }
-  /* the real palette behind a flavour name ("auto" picks by the system setting) */
-  function pal(f) { return f === 'auto' ? P[systemDark() ? 'macchiato' : 'latte'] : P[f]; }
+  /* Android 12+ "Material You" colours handed over by the app: n10..n1000 (neutral shades), a200/a400/a600 (accent) */
+  function sysColors() {
+    var out = {};
+    try {
+      var s = N() && N().colors ? String(N().colors()) : '';
+      s.split(',').forEach(function (kv) {
+        var m = /^(\w+)=#([0-9a-fA-F]{6})$/.exec(kv);
+        if (m) out[m[1]] = m[2];
+      });
+    } catch (e) {}
+    return out.n900 ? out : null;
+  }
+  /* the real palette behind a flavour name. "auto" = the system's own colours: light or dark as the
+     system is, and on Android 12+ its wallpaper-based colours for surfaces, text and accent */
+  function pal(f) {
+    if (f !== 'auto') return P[f];
+    var dark = systemDark(), base = P[dark ? 'macchiato' : 'latte'], c = sysColors();
+    if (!c) return base;
+    var o = { name: 'Auto', dark: dark };
+    for (var k in base) if (k !== 'name' && k !== 'dark') o[k] = base[k];
+    var m = dark
+      ? { base: 'n800', mantle: 'n900', crust: 'n1000', surface0: 'n700', surface1: 'n600', surface2: 'n500',
+          overlay0: 'n400', subtext0: 'n300', subtext1: 'n200', text: 'n100' }
+      : { base: 'n10', mantle: 'n50', crust: 'n100', surface0: 'n200', surface1: 'n300', surface2: 'n400',
+          overlay0: 'n500', subtext0: 'n700', subtext1: 'n800', text: 'n900' };
+    for (var key in m) o[key] = c[m[key]];
+    o.system = dark ? c.a200 : c.a600;
+    return o;
+  }
   /* Android 12+ hands us its own accent colour: offered as one more swatch ("system") */
   function sysAccent() {
     try { var c = N() && N().accent ? String(N().accent()) : ''; return /^#[0-9a-fA-F]{6}$/.test(c) ? c.slice(1) : ''; } catch (e) { return ''; }

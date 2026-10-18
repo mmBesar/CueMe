@@ -38,7 +38,7 @@ RUNTIME="$WORK/runtime"
 URL="https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-$ARCH"
 if ! curl -fsSL "$URL" -o "$RUNTIME"; then
   echo "No AppImage runtime published for $ARCH ($URL). Skipping the AppImage." >&2
-  exit 1
+  exit 0   # not an error: the .deb and the tarball are still published
 fi
 
 mksquashfs "$APPDIR" "$WORK/app.squashfs" -root-owned -noappend -comp zstd >/dev/null
