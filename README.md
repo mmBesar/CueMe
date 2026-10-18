@@ -48,7 +48,26 @@ Get everything from the **[Releases page](https://github.com/mmBesar/CueMe/relea
 | **Android 6 / 7** | `CueMe-android6.apk` |
 | Server / Raspberry Pi / no screen | `cueme-serve-linux-<arch>` (one file) or the Docker image (see below) |
 
-**Linux notes.** The apps are built on current systems, so use a recent distribution (Debian 13, Fedora 44, Ubuntu 26.04, NixOS 26.05 and newer). The `.deb` and the tarball need the system packages `libwebkit2gtk-4.1-0` and `libgtk-3-0`; the AppImage carries its own. The window icon on Wayland desktops (Hyprland, Plasma, Noctalia...) comes from `cueme.desktop`: the `.deb` installs it, and the AppImage / plain binary create it in your own `~/.local/share` the first time they start (set `CUEME_NO_INTEGRATION=1` to prevent that; delete the two `cueme` files there to undo it).
+**Linux notes.** The AppImage and `.deb` are built on Ubuntu 24.04 so they run on it and on anything newer (Debian 13, Fedora 44, Ubuntu 26.04, Arch...). The `.deb` and the tarball need the system packages `libwebkit2gtk-4.1-0` and `libgtk-3-0`; the AppImage carries its own. The window icon on Wayland desktops (Hyprland, Plasma, Noctalia...) comes from `cueme.desktop`: the `.deb` installs it, and the AppImage / plain binary create it in your own `~/.local/share` the first time they start (set `CUEME_NO_INTEGRATION=1` to prevent that; delete the two `cueme` files there to undo it).
+
+**NixOS / Nix.** Don't use the AppImage on NixOS; build CueMe natively with the flake (it uses your own system libraries, so it keeps working on every NixOS release):
+
+```bash
+nix run github:mmBesar/CueMe          # try it, nothing installed
+nix profile install github:mmBesar/CueMe   # install for your user
+nix run github:mmBesar/CueMe#serve    # only the headless hub (cueme-serve)
+```
+
+In a flake-based NixOS / home-manager config, add the input and the overlay, then use `pkgs.cueme`:
+
+```nix
+inputs.cueme.url = "github:mmBesar/CueMe";
+inputs.cueme.inputs.nixpkgs.follows = "nixpkgs";   # build with your nixpkgs (26.05, 26.10...)
+
+# in your configuration:
+nixpkgs.overlays = [ inputs.cueme.overlays.default ];
+environment.systemPackages = [ pkgs.cueme ];       # or home.packages = [ pkgs.cueme ];
+```
 
 **Android.** Open the APK on the phone and allow "install from this source" once.
 

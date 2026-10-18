@@ -2,9 +2,20 @@
 #
 # Start it by pushing a tag like v0.1.0 (or run it by hand from the Actions tab).
 # All builds run on NATIVE runners (no QEMU):
-#   amd64  -> ubuntu-26.04
-#   arm64  -> ubuntu-26.04-arm
-#   riscv64 -> ubuntu-26.04-riscv   (RISE RISC-V runners)
+#   amd64  -> ubuntu-26.04 / ubuntu-24.04
+#   arm64  -> ubuntu-26.04-arm / ubuntu-24.04-arm
+#   riscv64 -> ubuntu-24.04-riscv   (RISE RISC-V runners)
+#
+# Which Ubuntu, and why:
+#   * Anything that links to the system C library (glibc) and is handed to users as a
+#     program -- the desktop AppImage and .deb -- is built on Ubuntu 24.04. An AppImage
+#     carries its own GTK/WebKit, but those need at least the glibc they were built
+#     against, so building on the newest LTS makes it fail on every older system (NixOS
+#     26.05 included). 24.04's glibc 2.39 runs on all current distros.
+#   * Everything that does not depend on the host glibc uses the newest LTS (26.04):
+#     the hub (static musl), the Android build, the Docker image, tests and publishing.
+#   * riscv64: the 26.04 RISE runner label has no runners picking up jobs yet (jobs wait
+#     for hours), so riscv64 uses ubuntu-24.04-riscv. Move it back once 26.04 works.
 name: Release
 
 on:
@@ -41,7 +52,7 @@ jobs:
         include:
           - { arch: amd64,   runner: ubuntu-26.04,         target: x86_64-unknown-linux-musl }
           - { arch: arm64,   runner: ubuntu-26.04-arm,     target: aarch64-unknown-linux-musl }
-          - { arch: riscv64, runner: ubuntu-26.04-riscv,   target: riscv64gc-unknown-linux-musl }
+          - { arch: riscv64, runner: ubuntu-24.04-riscv,   target: riscv64gc-unknown-linux-musl }
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v6
@@ -96,8 +107,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { arch: amd64, runner: ubuntu-26.04 }
-          - { arch: arm64, runner: ubuntu-26.04-arm }
+          - { arch: amd64, runner: ubuntu-24.04 }
+          - { arch: arm64, runner: ubuntu-24.04-arm }
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v6
@@ -134,7 +145,7 @@ jobs:
   # ------------------------------------------------------------------
   desktop-riscv64:
     needs: test
-    runs-on: ubuntu-26.04-riscv
+    runs-on: ubuntu-24.04-riscv
     steps:
       - uses: actions/checkout@v6
       - name: Make sure Rust is installed
@@ -239,7 +250,7 @@ jobs:
         include:
           - { arch: amd64,   runner: ubuntu-26.04 }
           - { arch: arm64,   runner: ubuntu-26.04-arm }
-          - { arch: riscv64, runner: ubuntu-26.04-riscv }
+          - { arch: riscv64, runner: ubuntu-24.04-riscv }
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read

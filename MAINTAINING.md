@@ -39,7 +39,7 @@ To install an APK: open it on the phone and allow "install from this source" onc
 
 
 ## Releases and the version
-- Push a tag: `git tag -a v0.3.0 -m "CueMe 0.3.0" && git push origin v0.3.0`. The workflow builds on **native runners** (amd64 `ubuntu-26.04`, arm64 `ubuntu-26.04-arm`, riscv64 `ubuntu-26.04-riscv`), no QEMU.
+- Push a tag: `git tag -a v0.3.0 -m "CueMe 0.3.0" && git push origin v0.3.0`. The workflow builds on **native runners** (no QEMU). The desktop AppImage/.deb and riscv64 use **Ubuntu 24.04** runners (`ubuntu-24.04`, `-arm`, `-riscv`) on purpose: an AppImage bundles GTK/WebKit that need at least the glibc of the system that built them, so building on the newest LTS breaks it on older distros (NixOS 26.05 failed). Everything glibc-independent (hub, Android, Docker, tests) uses `ubuntu-26.04`. Revisit when the oldest distro you care about has glibc 2.43. NixOS users build from `flake.nix` (`nix/package.nix`); after changing Rust dependencies in `src-tauri/` the lock file is used as is, so a failed Nix build usually means a missing system library in `nix/package.nix`.
 - The tag becomes the Android version (`v0.2.3` -> versionName 0.2.3, versionCode 20300).
 - Desktop jobs use the newest Ubuntu runner on purpose: newest WebKitGTK/libraries, so the apps follow current distributions without repo changes. Change the runner labels in `release.yml` when a newer one appears.
 - The release job downloads only `hub-*`, `desktop-*` and `android` artifacts. Docker's build-record artifacts (`*.dockerbuild`) are switched off (`DOCKER_BUILD_RECORD_UPLOAD`), because downloading them failed the release step.
