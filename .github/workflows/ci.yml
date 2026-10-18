@@ -16,7 +16,7 @@ env:
 jobs:
   # 1) Rust: the core library + the hub (network server) + the Android bridge
   rust:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v6
       - name: Rust tests
@@ -25,7 +25,7 @@ jobs:
   # 2) Web UI: unit tests, old-browser syntax check, and the full browser test
   #    (a real hub + a real Chromium: one display page, one remote page)
   web:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v6
       - name: Install test tools
@@ -41,7 +41,7 @@ jobs:
 
   # 3) Linux desktop app: make sure it still compiles (the full bundle is built in release.yml)
   desktop-check:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v6
       - name: Install GTK / WebKit

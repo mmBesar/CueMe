@@ -39,7 +39,7 @@ To install an APK: open it on the phone and allow "install from this source" onc
 
 
 ## Releases and the version
-- Push a tag: `git tag v0.2.0 && git push --tags`. The workflow builds on **native runners** (amd64 `ubuntu-24.04`, arm64 `ubuntu-24.04-arm`, riscv64 `ubuntu-24.04-riscv`), no QEMU.
+- Push a tag: `git tag -a v0.3.0 -m "CueMe 0.3.0" && git push origin v0.3.0`. The workflow builds on **native runners** (amd64 `ubuntu-26.04`, arm64 `ubuntu-26.04-arm`, riscv64 `ubuntu-26.04-riscv`), no QEMU.
 - The tag becomes the Android version (`v0.2.3` -> versionName 0.2.3, versionCode 20300).
 - Desktop jobs use the newest Ubuntu runner on purpose: newest WebKitGTK/libraries, so the apps follow current distributions without repo changes. Change the runner labels in `release.yml` when a newer one appears.
 - The release job downloads only `hub-*`, `desktop-*` and `android` artifacts. Docker's build-record artifacts (`*.dockerbuild`) are switched off (`DOCKER_BUILD_RECORD_UPLOAD`), because downloading them failed the release step.

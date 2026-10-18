@@ -1,7 +1,7 @@
 # CueMe headless hub image.
 # The binary is built (statically, with musl) by the release workflow and copied in,
 # so there is nothing to compile here and it builds on every CPU type natively.
-FROM alpine:3.22
+FROM alpine:3.23
 
 # tzdata = TZ support, su-exec = run as PUID/PGID
 RUN apk add --no-cache tzdata su-exec

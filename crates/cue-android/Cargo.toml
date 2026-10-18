@@ -6,7 +6,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-cue-hub = { version = "0.2.0", path = "../cue-hub" }
+cue-hub = { version = "0.3.0", path = "../cue-hub" }
 jni = "0.21"
 tokio = { version = "1.53.3", features = ["rt-multi-thread", "net", "time"] }
 

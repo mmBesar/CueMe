@@ -18,3 +18,7 @@ node_modules
 *.jks
 *.keystore
 *.p12
+
+# private helper scripts (not published)
+/cueme-update.sh
+/local/
