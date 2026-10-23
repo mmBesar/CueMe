@@ -527,6 +527,48 @@ await T('themes: AMOLED is true black; Auto exists', async () => {
   await c.close();
 });
 
+await T('desktop app: "Add to app menu" button appears only in the app, toggles, and is hidden on a plain hub', async () => {
+  // plain hub (no window): no button
+  let c = await browser.newContext({ viewport: { width: 1000, height: 700 } });
+  let p = await c.newPage();
+  await p.goto(base);
+  await p.locator('button.big').first().click();
+  await p.waitForSelector('#stage');
+  await p.keyboard.press('m');
+  await p.waitForSelector('#panel.open');
+  assert.equal(await p.locator('#panel button', { hasText: /app menu/i }).filter({ visible: true }).count(), 0);
+  await c.close();
+  // pretend to be the desktop app: the hub reports a window and the entry as not installed
+  c = await browser.newContext({ viewport: { width: 1000, height: 700 } });
+  p = await c.newPage();
+  let installed = false;
+  const calls = [];
+  await p.route('**/api/connect*', async (route) => {
+    const r = await route.fetch();
+    const j = await r.json();
+    j.native = true; j.launcher = installed;
+    await route.fulfill({ response: r, json: j });
+  });
+  await p.route('**/api/native/launcher/*', async (route) => {
+    calls.push(route.request().url().split('/api/native/launcher/')[1].split('?')[0]);
+    installed = !installed;
+    await route.fulfill({ json: { launcher: installed, message: 'ok' } });
+  });
+  await p.goto(base);
+  await p.locator('button.big').first().click();
+  await p.waitForSelector('#stage');
+  await p.keyboard.press('m');
+  await p.waitForSelector('#panel.open');
+  const btn = p.locator('#panel button', { hasText: 'Add to app menu' });
+  await btn.waitFor({ state: 'visible' });
+  await btn.click();
+  await p.locator('#panel button', { hasText: 'Remove from app menu' }).waitFor({ state: 'visible' });
+  await p.locator('#panel button', { hasText: 'Remove from app menu' }).click();
+  await p.locator('#panel button', { hasText: 'Add to app menu' }).waitFor({ state: 'visible' });
+  assert.deepEqual(calls, ['install', 'uninstall']);
+  await c.close();
+});
+
 await T('no JavaScript errors on any page', async () => { assert.deepEqual(errors, []); });
 
 await browser.close();

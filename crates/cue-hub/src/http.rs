@@ -82,6 +82,7 @@ pub fn router(sh: S) -> Router {
         .route("/api/rooms", get(rooms))
         .route("/api/native/fullscreen", post(native_fullscreen))
         .route("/api/native/quit", post(native_quit))
+        .route("/api/native/launcher/{action}", post(native_launcher))
         .route("/api/qr.svg", get(qr))
         .route("/api/library", get(lib_list))
         .route(
@@ -160,6 +161,7 @@ async fn connect(
         "name": sh.name,
         "library": sh.library_dir.display().to_string(),
         "native": sh.native.is_some(),
+        "launcher": sh.native.as_ref().and_then(|n| n.launcher()),
     }))
     .into_response()
 }
@@ -201,6 +203,48 @@ async fn native_quit(
             n.quit();
             Json(json!({ "quit": true })).into_response()
         }
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+/// Add / remove the per-user app-menu entry. This WRITES FILES in the user's home, so it
+/// is stricter than fullscreen: the PIN, a direct connection from this machine (not
+/// through a proxy: no forwarding headers, a loopback Host) and the action in the path.
+async fn native_launcher(
+    State(sh): State<S>,
+    ConnectInfo(ip): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Query(q): Query<PinQ>,
+    Path(action): Path<String>,
+) -> Response {
+    if let Err(r) = auth(&sh, ip, &headers, &q) {
+        return r;
+    }
+    let host = headers
+        .get(header::HOST)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    let host_ok = host.starts_with("127.0.0.1") || host.starts_with("localhost") || host.starts_with("[::1]");
+    let proxied = headers.contains_key("x-forwarded-for")
+        || headers.contains_key("x-real-ip")
+        || headers.contains_key("forwarded");
+    if !ip.ip().is_loopback() || proxied || !host_ok {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let on = match action.as_str() {
+        "install" => true,
+        "uninstall" => false,
+        _ => return StatusCode::NOT_FOUND.into_response(),
+    };
+    match &sh.native {
+        Some(n) => match n.set_launcher(on) {
+            Ok(msg) => Json(json!({ "launcher": n.launcher(), "message": msg })).into_response(),
+            Err(e) => (
+                StatusCode::CONFLICT,
+                Json(json!({ "launcher": n.launcher(), "message": e })),
+            )
+                .into_response(),
+        },
         None => StatusCode::NOT_FOUND.into_response(),
     }
 }

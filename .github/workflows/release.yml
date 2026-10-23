@@ -129,19 +129,56 @@ jobs:
           mkdir -p dist
           cp src-tauri/target/release/bundle/appimage/*.AppImage "dist/CueMe-linux-${{ matrix.arch }}.AppImage"
           cp src-tauri/target/release/bundle/deb/*.deb "dist/cueme-linux-${{ matrix.arch }}.deb"
-          tar -C src-tauri/target/release -czf "dist/cueme-desktop-linux-${{ matrix.arch }}.tar.gz" cueme
+          scripts/make-tarball.sh "${{ matrix.arch }}" src-tauri/target/release/cueme "dist/cueme-desktop-linux-${{ matrix.arch }}.tar.gz"
       - uses: actions/upload-artifact@v6
         with:
           name: desktop-${{ matrix.arch }}
           path: dist/*
 
   # ------------------------------------------------------------------
+  # Fedora RPM (Fedora 44 and later), amd64 and arm64.
+  # Built INSIDE a Fedora 44 container, so it is linked against Fedora's own
+  # WebKitGTK/GTK/glibc and installs on Fedora 44, 45, ... The job runs on a NATIVE
+  # runner of each architecture (no QEMU). We call `docker run` ourselves instead of
+  # using `container:` for the job, because then the GitHub actions (checkout, upload)
+  # keep running on the plain runner and only the build runs in Fedora.
+  # The source is mounted read-only and the container writes the .rpm to a separate
+  # folder, so the runner never ends up with root-owned files in its workspace.
+  # ------------------------------------------------------------------
+  rpm:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: amd64, runner: ubuntu-26.04 }
+          - { arch: arm64, runner: ubuntu-26.04-arm }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build the RPM in a Fedora 44 container
+        run: |
+          mkdir -p rpm-out
+          docker run --rm \
+            -v "$PWD:/src:ro" -v "$PWD/rpm-out:/out" \
+            registry.fedoraproject.org/fedora:44 \
+            bash /src/scripts/build-rpm.sh /src /out "${{ matrix.arch }}"
+          sudo chown -R "$(id -u):$(id -g)" rpm-out
+      - name: Check what is inside
+        run: |
+          docker run --rm -v "$PWD/rpm-out:/out:ro" registry.fedoraproject.org/fedora:44 \
+            bash -c 'rpm -qpl /out/cueme-fedora-${{ matrix.arch }}.rpm && rpm -qp --requires /out/cueme-fedora-${{ matrix.arch }}.rpm'
+      - uses: actions/upload-artifact@v6
+        with:
+          name: desktop-rpm-${{ matrix.arch }}
+          path: rpm-out/*.rpm
+
+  # ------------------------------------------------------------------
   # Linux desktop app on riscv64. Built natively on a RISE RISC-V runner.
-  # The Tauri tool has no riscv64 build and linuxdeploy (the AppImage library
-  # bundler) has none either, so here we build the program with cargo and make
-  # a "thin" AppImage that uses the system WebKitGTK (package libwebkit2gtk-4.1).
-  # If the AppImage step cannot get a riscv64 AppImage runtime, the tarball is
-  # still published.
+  # riscv64 gets the plain binary (tar.gz) and a .deb only: the Tauri tool and
+  # linuxdeploy (the AppImage library bundler) have no riscv64 build, and there is no
+  # riscv64 AppImage runtime, so there is no AppImage and no RPM for it. Both need
+  # the system WebKitGTK (libwebkit2gtk-4.1) installed.
   # ------------------------------------------------------------------
   desktop-riscv64:
     needs: test
@@ -158,18 +195,15 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
-            librsvg2-dev patchelf squashfs-tools file
+            librsvg2-dev patchelf file
       - name: Build
         run: cargo build --release --manifest-path src-tauri/Cargo.toml
       - name: Tarball
         run: |
           mkdir -p dist
-          tar -C src-tauri/target/release -czf dist/cueme-desktop-linux-riscv64.tar.gz cueme
+          scripts/make-tarball.sh riscv64 src-tauri/target/release/cueme dist/cueme-desktop-linux-riscv64.tar.gz
       - name: Debian package
         run: scripts/make-deb.sh riscv64 src-tauri/target/release/cueme dist/cueme-linux-riscv64.deb
-      - name: Thin AppImage (best effort)
-        continue-on-error: true
-        run: scripts/appimage-thin.sh riscv64 src-tauri/target/release/cueme dist/CueMe-linux-riscv64.AppImage
       - uses: actions/upload-artifact@v6
         with:
           name: desktop-riscv64
@@ -318,7 +352,7 @@ jobs:
   # Publish the GitHub Release (only for tags). Whatever finished is attached.
   # ------------------------------------------------------------------
   release:
-    needs: [hub, desktop, desktop-riscv64, android]
+    needs: [hub, desktop, rpm, desktop-riscv64, android]
     if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-26.04
     permissions:

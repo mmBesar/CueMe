@@ -39,29 +39,11 @@ rustPlatform.buildRustPackage {
   doCheck = false;
 
   postInstall = ''
-    install -Dm644 src-tauri/icons/128x128.png $out/share/icons/hicolor/128x128/apps/cueme.png
-    install -Dm644 src-tauri/icons/128x128@2x.png $out/share/icons/hicolor/256x256/apps/cueme.png
-    mkdir -p $out/share/applications
-    cat > $out/share/applications/cueme.desktop <<DESKTOP
-    [Desktop Entry]
-    Type=Application
-    Version=1.0
-    Name=CueMe
-    GenericName=Teleprompter
-    Comment=Teleprompter with Arabic/English Markdown, display or remote
-    Exec=cueme
-    Icon=cueme
-    Terminal=false
-    Categories=Utility;
-    Keywords=teleprompter;prompter;autocue;cue;
-    StartupWMClass=cueme
-    DESKTOP
-    sed -i 's/^    //' $out/share/applications/cueme.desktop
-  '';
-
-  # the program tries to add its own desktop entry in ~/.local/share; the package has one
-  preFixup = ''
-    gappsWrapperArgs+=(--set CUEME_NO_INTEGRATION 1)
+    for s in 16 24 32 48 64 128 256 512; do
+      install -Dm644 packaging/icons/''${s}x''${s}.png $out/share/icons/hicolor/''${s}x''${s}/apps/cueme.png
+    done
+    install -Dm644 packaging/icons/cueme.svg $out/share/icons/hicolor/scalable/apps/cueme.svg
+    install -Dm644 packaging/cueme.desktop $out/share/applications/cueme.desktop
   '';
 
   meta = {

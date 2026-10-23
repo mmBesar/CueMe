@@ -27,134 +27,133 @@ impl cue_hub::Native for MainWindow {
     fn quit(&self) {
         self.0.exit(0);
     }
+
+    fn launcher(&self) -> Option<bool> {
+        launcher_state()
+    }
+
+    fn set_launcher(&self, on: bool) -> Result<String, String> {
+        launcher_set(on)
+    }
 }
 
-/// Makes the window icon work for an AppImage / plain binary on Wayland.
+/// The per-user app-menu entry, driven by the "Add to app menu" button.
 ///
-/// Wayland has no "set window icon" call: the desktop shell looks the icon up through
-/// the app id (`cueme`) -> `cueme.desktop` -> icon `cueme`. An installed .deb provides
-/// those; an AppImage or loose binary does not, so on first start we put the same two
-/// small things in the user's own folders (`~/.local/share/applications` and
-/// `~/.local/share/icons`), pointing at this file. Nothing outside the home folder is
-/// touched; set CUEME_NO_INTEGRATION=1 to skip it. It is skipped for system installs.
+/// NOTHING is written unless the user asks: not at start-up, not in an AppImage. The
+/// same code is behind `cueme --install-launcher` (see `cli`).
 #[cfg(target_os = "linux")]
-fn integrate_desktop() {
-    use std::os::unix::fs::MetadataExt;
-    use std::path::PathBuf;
-    if std::env::var_os("CUEME_NO_INTEGRATION").is_some() {
-        return;
-    }
-    // never as root (sudo keeps $HOME and would leave root-owned files in the user's home)
-    if std::fs::metadata("/proc/self").map(|m| m.uid() == 0).unwrap_or(true) {
-        return;
-    }
-    let appimage_var = std::env::var_os("APPIMAGE");
-    let exe: PathBuf = match &appimage_var {
-        Some(v) => {
-            let p = PathBuf::from(v);
-            if !p.is_file() {
-                return; // set but wrong: do not guess
-            }
-            p
-        }
-        None => match std::env::current_exe() {
-            Ok(p) => p,
-            Err(_) => return,
-        },
-    };
-    let s = exe.to_string_lossy().to_string();
-    let appimage = appimage_var.is_some();
-    if !appimage
-        && (s.starts_with("/usr/")
-            || s.starts_with("/nix/store/")
-            || s.starts_with("/opt/")
-            || s.contains("/target/debug/")
-            || s.contains("/target/release/")
-            || s.contains("/.mount_"))
-    {
-        return; // installed by a package, or a developer build: no launcher needed
-    }
-    // the Exec line has its own escaping rules: only integrate for plain, safe paths
-    if s.chars().any(|c| c.is_control() || matches!(c, '%' | '$' | '`' | '"' | '\\' | '\'' | '\n')) {
-        return;
-    }
-    let home = match std::env::var_os("HOME") {
-        Some(h) => PathBuf::from(h),
-        None => return,
-    };
-    let data = std::env::var_os("XDG_DATA_HOME")
-        .map(PathBuf::from)
-        .filter(|p| p.is_absolute())
-        .unwrap_or_else(|| home.join(".local/share"));
+fn launcher_state() -> Option<bool> {
+    cue_launcher::data_dir().map(|d| cue_launcher::is_installed(&d))
+}
 
-    fn put(path: &std::path::Path, bytes: &[u8]) -> bool {
-        if std::fs::read(path).map(|b| b == bytes).unwrap_or(false) {
-            return false;
-        }
-        // a symlink (home-manager, dotfiles repo) is somebody else's file: leave it alone
-        if std::fs::symlink_metadata(path)
-            .map(|m| m.file_type().is_symlink())
-            .unwrap_or(false)
-        {
-            return false;
-        }
-        if let Some(d) = path.parent() {
-            if std::fs::create_dir_all(d).is_err() {
-                return false;
-            }
-        }
-        let tmp = path.with_extension("tmp-cueme");
-        if std::fs::write(&tmp, bytes).is_err() {
-            return false;
-        }
-        if std::fs::rename(&tmp, path).is_err() {
-            let _ = std::fs::remove_file(&tmp);
-            return false;
-        }
-        true
-    }
-    // Exec needs quoting when the path has spaces
-    let exec = format!("\"{s}\"");
-    let desktop = format!(
-        "[Desktop Entry]\nType=Application\nVersion=1.0\nName=CueMe\nGenericName=Teleprompter\n\
-         Comment=Teleprompter with Arabic/English Markdown, display or remote\nExec={exec}\nIcon=cueme\n\
-         Terminal=false\nCategories=Utility;\nKeywords=teleprompter;prompter;autocue;cue;\nStartupWMClass=cueme\n"
-    );
-    let mut changed = put(&data.join("applications/cueme.desktop"), desktop.as_bytes());
-    for (size, bytes) in [
-        (32, &include_bytes!("../icons/32x32.png")[..]),
-        (128, &include_bytes!("../icons/128x128.png")[..]),
-        (256, &include_bytes!("../../assets/icon-256.png")[..]),
-        (512, &include_bytes!("../../assets/icon-512.png")[..]),
-    ] {
-        changed |= put(&data.join(format!("icons/hicolor/{size}x{size}/apps/cueme.png")), bytes);
-    }
-    if changed {
-        // best effort, off the startup path: make menus / shells notice right away
-        std::thread::spawn(move || {
-            let quiet = || (std::process::Stdio::null(), std::process::Stdio::null());
-            let (o, e) = quiet();
-            let _ = std::process::Command::new("update-desktop-database")
-                .arg(data.join("applications"))
-                .stdout(o)
-                .stderr(e)
-                .status();
-            let (o, e) = quiet();
-            let _ = std::process::Command::new("gtk-update-icon-cache")
-                .args(["-f", "-t"])
-                .arg(data.join("icons/hicolor"))
-                .stdout(o)
-                .stderr(e)
-                .status();
-        });
-    }
+#[cfg(target_os = "linux")]
+fn launcher_set(on: bool) -> Result<String, String> {
+    let data = cue_launcher::data_dir().ok_or("cannot find your data folder (HOME is not set)")?;
+    let rep = if on {
+        cue_launcher::install(&data, &cue_launcher::launcher_target()?)?
+    } else {
+        cue_launcher::uninstall(&data)?
+    };
+    // menus notice the change without a re-login; off this thread so the button stays quick
+    std::thread::spawn(move || cue_launcher::refresh_caches(&data));
+    Ok(rep.text())
 }
 
 #[cfg(not(target_os = "linux"))]
-fn integrate_desktop() {}
+fn launcher_state() -> Option<bool> {
+    None
+}
+
+#[cfg(not(target_os = "linux"))]
+fn launcher_set(_on: bool) -> Result<String, String> {
+    Err("not supported".into())
+}
+
+const HELP: &str = "CueMe - teleprompter, display and remote in one app
+
+Usage: cueme [OPTION]
+
+  --install-launcher    add CueMe to your app menu (this user only): a menu entry and
+                        the icons, in ~/.local/share. Never overwrites an entry that
+                        CueMe did not make.
+  --uninstall-launcher  remove exactly what --install-launcher added
+  -V, --version         print the version
+  -h, --help            this text
+
+Without options the app starts. An AppImage or plain binary never adds a menu entry
+or icons by itself.";
+
+/// Command-line actions that must work without a display and without starting the app.
+/// Returns the exit code when one of them ran.
+fn cli() -> Option<i32> {
+    let mut code = None;
+    for a in std::env::args().skip(1) {
+        match a.as_str() {
+            "-h" | "--help" => {
+                println!("{HELP}");
+                return Some(0);
+            }
+            "-V" | "--version" => {
+                println!("cueme {}", env!("CARGO_PKG_VERSION"));
+                return Some(0);
+            }
+            "--install-launcher" | "--uninstall-launcher" => {
+                let on = a == "--install-launcher";
+                #[cfg(target_os = "linux")]
+                let res = launcher_set_blocking(on);
+                #[cfg(not(target_os = "linux"))]
+                let res: Result<String, String> = Err("this only exists on Linux".into());
+                match res {
+                    Ok(m) => {
+                        println!("{m}");
+                        code = Some(0);
+                    }
+                    Err(e) => {
+                        eprintln!("cueme: {e}");
+                        return Some(1);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    code
+}
+
+/// Like `launcher_set`, but waits for the cache refresh (a command line has no hurry).
+#[cfg(target_os = "linux")]
+fn launcher_set_blocking(on: bool) -> Result<String, String> {
+    let data = cue_launcher::data_dir().ok_or("cannot find your data folder (HOME is not set)")?;
+    let rep = if on {
+        cue_launcher::install(&data, &cue_launcher::launcher_target()?)?
+    } else {
+        cue_launcher::uninstall(&data)?
+    };
+    cue_launcher::refresh_caches(&data);
+    Ok(rep.text())
+}
+
+/// Wayland has no "window class" call: the shell matches a window to its menu entry
+/// through the app id, and GTK takes that from the program name (and for X11 / XWayland
+/// the window class name). The program name would otherwise depend on how we were
+/// started (`AppRun`, a renamed file, a symlink), so we set it to `cueme` explicitly.
+/// It must equal the desktop file name `cueme.desktop` and `StartupWMClass=cueme`.
+/// It has to be set before GTK starts. (`gdk::set_program_class` is not used: the gtk
+/// bindings refuse to call it before GTK is initialised, and it only changes the X11
+/// class that `StartupWMClass` already matches through the name.)
+#[cfg(target_os = "linux")]
+fn set_app_id() {
+    gtk::glib::set_prgname(Some(cue_launcher::APP_ID));
+}
+
+#[cfg(not(target_os = "linux"))]
+fn set_app_id() {}
 
 fn main() {
-    integrate_desktop();
+    if let Some(code) = cli() {
+        std::process::exit(code);
+    }
+    set_app_id();
     let app = tauri::Builder::default()
         .setup(|app| {
             let data = app.path().app_data_dir()?;

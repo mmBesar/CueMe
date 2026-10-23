@@ -8,26 +8,14 @@ VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' src-tauri/Cargo.toml | head -1)"
 ROOT="$(mktemp -d)/cueme_${VERSION}_${ARCH}"
 mkdir -p "$ROOT/DEBIAN" "$ROOT/usr/bin" "$ROOT/usr/share/applications"
 install -m 0755 "$BIN" "$ROOT/usr/bin/cueme"
-for s in 32 128 256 512; do
-  src="assets/icon-$s.png"; [ -f "$src" ] || src="src-tauri/icons/${s}x${s}.png"; [ -f "$src" ] || continue
+for s in 16 24 32 48 64 128 256 512; do
   mkdir -p "$ROOT/usr/share/icons/hicolor/${s}x${s}/apps"
-  install -m 0644 "$src" "$ROOT/usr/share/icons/hicolor/${s}x${s}/apps/cueme.png"
+  install -m 0644 "packaging/icons/${s}x${s}.png" "$ROOT/usr/share/icons/hicolor/${s}x${s}/apps/cueme.png"
 done
+mkdir -p "$ROOT/usr/share/icons/hicolor/scalable/apps"
+install -m 0644 packaging/icons/cueme.svg "$ROOT/usr/share/icons/hicolor/scalable/apps/cueme.svg"
 # same name as the program (cueme.desktop + StartupWMClass=cueme) so Wayland shells find the icon
-cat > "$ROOT/usr/share/applications/cueme.desktop" <<'DESK'
-[Desktop Entry]
-Type=Application
-Version=1.0
-Name=CueMe
-GenericName=Teleprompter
-Comment=Teleprompter with Arabic/English Markdown, display or remote
-Exec=cueme
-Icon=cueme
-Terminal=false
-Categories=Utility;
-Keywords=teleprompter;prompter;autocue;cue;
-StartupWMClass=cueme
-DESK
+install -m 0644 packaging/cueme.desktop "$ROOT/usr/share/applications/cueme.desktop"
 cat > "$ROOT/DEBIAN/control" <<CTRL
 Package: cueme
 Version: $VERSION

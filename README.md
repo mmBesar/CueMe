@@ -42,15 +42,33 @@ Get everything from the **[Releases page](https://github.com/mmBesar/CueMe/relea
 
 | You have | Download |
 |---|---|
-| Linux PC / laptop (amd64, arm64) | `CueMe-linux-<arch>.AppImage`, or the `.deb`, or the `cueme-desktop-linux-<arch>.tar.gz` |
-| Linux riscv64 | `cueme-linux-riscv64.deb` or `cueme-desktop-linux-riscv64.tar.gz` (and the AppImage when it could be built) |
+| Linux PC / laptop (amd64, arm64) | `CueMe-linux-<arch>.AppImage` (any distribution), `cueme-linux-<arch>.deb` (Debian, Ubuntu, Mint), `cueme-fedora-<arch>.rpm` (Fedora 44 and later), or `cueme-desktop-linux-<arch>.tar.gz` |
+| Linux riscv64 | `cueme-linux-riscv64.deb` or `cueme-desktop-linux-riscv64.tar.gz` (no AppImage or RPM) |
 | Android 8 or newer | `CueMe-android-modern.apk` |
 | **Android 6 / 7** | `CueMe-android6.apk` |
 | Server / Raspberry Pi / no screen | `cueme-serve-linux-<arch>` (one file) or the Docker image (see below) |
 
-**Linux notes.** The AppImage and `.deb` are built on Ubuntu 24.04 so they run on it and on anything newer (Debian 13, Fedora 44, Ubuntu 26.04, Arch...). The `.deb` and the tarball need the system packages `libwebkit2gtk-4.1-0` and `libgtk-3-0`; the AppImage carries its own. The window icon on Wayland desktops (Hyprland, Plasma, Noctalia...) comes from `cueme.desktop`: the `.deb` installs it, and the AppImage / plain binary create it in your own `~/.local/share` the first time they start (set `CUEME_NO_INTEGRATION=1` to prevent that; delete the two `cueme` files there to undo it).
+### Installing on Linux
 
-**NixOS / Nix.** Don't use the AppImage on NixOS; build CueMe natively with the flake (it uses your own system libraries, so it keeps working on every NixOS release):
+| Package | How |
+|---|---|
+| **AppImage** (portable, carries its own libraries) | `chmod +x CueMe-linux-amd64.AppImage`, then `./CueMe-linux-amd64.AppImage` |
+| **.deb** (Debian, Ubuntu, Mint) | `sudo apt install ./cueme-linux-amd64.deb` |
+| **.rpm** (Fedora 44 and later) | `sudo dnf install ./cueme-fedora-amd64.rpm` |
+| **tar.gz** | unpack it, run `./cueme`; needs `libwebkit2gtk-4.1` and `gtk3` from your distribution (Arch: `sudo pacman -S webkit2gtk-4.1 gtk3`) |
+
+Use `arm64` instead of `amd64` on an ARM computer. The `.deb` and `.rpm` put CueMe in your app menu themselves, with every icon size.
+
+**The AppImage never changes anything by itself.** It does not add a menu entry or icons when you start it. If you want CueMe in your app menu, first put the file where it should stay (for example `~/Applications`), then do one of these:
+
+- in the app: **Controls, Add to app menu** (the button is only there in the desktop app, and only when the entry is not installed yet), or
+- in a terminal: `./CueMe-linux-amd64.AppImage --install-launcher`
+
+This writes a menu entry and the icons (16, 24, 32, 48, 64, 128, 256, 512 and an SVG) in `~/.local/share`, for your user only. It never overwrites a `cueme.desktop` that it did not create itself, and the entry points to the AppImage file, so if you move the file, run the command again. To undo it, press **Remove from app menu** or run `--uninstall-launcher`; that removes exactly what was added and nothing else. The tarball's program accepts the same two options.
+
+The AppImage and `.deb` are built on Ubuntu 24.04 so they run on it and on anything newer (Debian 13, Fedora, Ubuntu 26.04, Arch, NixOS...). The window's app id is `cueme`, so a bar or dock on Wayland (Hyprland, Plasma, Noctalia...) matches the window to `cueme.desktop` and shows the icon.
+
+**NixOS / Nix.** The AppImage runs on NixOS with `appimage-run`. If you prefer a native build, the flake compiles CueMe against your own system libraries (it downloads and builds WebKitGTK, so it needs a few GB and some time), and it keeps working on every NixOS release:
 
 ```bash
 nix run github:mmBesar/CueMe          # try it, nothing installed
@@ -175,7 +193,7 @@ APKs from the Releases page install and update normally. If you ever see "app no
 - If Arabic dots or marks look misplaced on a Linux system, pick another script font in the Controls tab (it is chosen per device).
 - The Android app stops serving when Android closes it in the background. Keep it open while prompting (the screen is kept awake).
 - In a plain browser, fullscreen from the remote needs a tap on the display first (browsers insist). The apps do it directly.
-- riscv64: the AppImage is a thin one (needs `libwebkit2gtk-4.1` installed).
+- riscv64: `.deb` and tar.gz only, no AppImage or RPM (needs `libwebkit2gtk-4.1` installed).
 
 ## For developers and maintainers
 Building, releasing and signing the Android apps: see **[MAINTAINING.md](MAINTAINING.md)**.

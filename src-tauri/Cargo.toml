@@ -1,6 +1,6 @@
 [package]
 name = "cueme"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 license = "MIT"
 authors = ["mmBesar"]
@@ -13,6 +13,11 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = ["image-png"] }
 cue-hub = { path = "../crates/cue-hub" }
+cue-launcher = { path = "../crates/cue-launcher" }
+
+# the window's Wayland app id / X11 class (same gtk that tauri already uses)
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"
 
 [profile.release]
 lto = true

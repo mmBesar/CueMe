@@ -289,7 +289,7 @@ dependencies = [
 
 [[package]]
 name = "cue-android"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "cue-hub",
  "jni 0.21.1",
@@ -298,7 +298,7 @@ dependencies = [
 
 [[package]]
 name = "cue-core"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "pulldown-cmark",
  "rand 0.10.3",
@@ -310,7 +310,7 @@ dependencies = [
 
 [[package]]
 name = "cue-hub"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "axum",
  "cue-core",
@@ -325,6 +325,13 @@ dependencies = [
  "tokio",
  "tokio-tungstenite 0.30.0",
  "tower-http 0.7.1",
+]
+
+[[package]]
+name = "cue-launcher"
+version = "0.4.0"
+dependencies = [
+ "tempfile",
 ]
 
 [[package]]

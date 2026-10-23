@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=CueMe
+GenericName=Teleprompter
+Comment=Teleprompter with Arabic/English Markdown, display or remote
+Exec=cueme
+Icon=cueme
+Terminal=false
+Categories=Utility;
+Keywords=teleprompter;prompter;autocue;cue;
+StartupWMClass=cueme
+StartupNotify=true

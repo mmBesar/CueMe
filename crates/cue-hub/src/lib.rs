@@ -33,6 +33,16 @@ pub trait Native: Send + Sync {
     fn toggle_fullscreen(&self) -> bool;
     /// Close the app (desktop). Default: nothing.
     fn quit(&self) {}
+    /// Per-user app-menu entry: `None` = this app does not offer it, `Some(true)` =
+    /// our entry is installed. Default: not offered.
+    fn launcher(&self) -> Option<bool> {
+        None
+    }
+    /// Install (`true`) or remove (`false`) the per-user app-menu entry. Returns a
+    /// short message for the user.
+    fn set_launcher(&self, _on: bool) -> Result<String, String> {
+        Err("not supported".into())
+    }
 }
 
 #[derive(Clone)]

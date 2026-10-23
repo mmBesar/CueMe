@@ -665,3 +665,98 @@ async fn pin_none_means_open_but_foreign_origin_still_refused() {
     assert!(connect_async(req).await.is_ok());
     h.stop().await;
 }
+
+// ------------------------------------------------- "Add to app menu" button
+
+struct MenuWindow(std::sync::Mutex<bool>);
+impl cue_hub::Native for MenuWindow {
+    fn toggle_fullscreen(&self) -> bool {
+        false
+    }
+    fn launcher(&self) -> Option<bool> {
+        Some(*self.0.lock().unwrap())
+    }
+    fn set_launcher(&self, on: bool) -> Result<String, String> {
+        *self.0.lock().unwrap() = on;
+        Ok(format!("launcher {on}"))
+    }
+}
+
+#[tokio::test]
+async fn app_menu_action_is_local_direct_and_pinned() {
+    let d = tempfile::tempdir().unwrap();
+    let mut c = Config::with_data_dir(d.path());
+    c.bind = "127.0.0.1:0".parse().unwrap();
+    c.discovery = false;
+    c.native = Some(std::sync::Arc::new(MenuWindow(Default::default())));
+    let h = start(c).await.unwrap();
+    let cl = reqwest::Client::new();
+    let base = format!("http://{}", h.addr);
+
+    let info: Value = cl
+        .get(format!("{base}/api/connect?pin={}", h.pin))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(info["launcher"], false, "offered, not installed");
+
+    // wrong PIN
+    let r = cl.post(format!("{base}/api/native/launcher/install?pin=bad")).send().await.unwrap();
+    assert_eq!(r.status(), 401);
+    // behind a proxy (forwarding header): refused, nothing written
+    let r = cl
+        .post(format!("{base}/api/native/launcher/install?pin={}", h.pin))
+        .header("x-forwarded-for", "203.0.113.9")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 403);
+    // a name that is not loopback in Host (DNS rebinding / reverse proxy): refused
+    let r = cl
+        .post(format!("{base}/api/native/launcher/install?pin={}", h.pin))
+        .header("host", "cueme.example.org")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 403);
+    // unknown action
+    let r = cl.post(format!("{base}/api/native/launcher/format-disk?pin={}", h.pin)).send().await.unwrap();
+    assert_eq!(r.status(), 404);
+    let info: Value = cl.get(format!("{base}/api/connect?pin={}", h.pin)).send().await.unwrap().json().await.unwrap();
+    assert_eq!(info["launcher"], false, "every refusal left it untouched");
+
+    // the app's own window: direct, loopback, PIN
+    let r: Value = cl
+        .post(format!("{base}/api/native/launcher/install?pin={}", h.pin))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(r["launcher"], true);
+    let r: Value = cl
+        .post(format!("{base}/api/native/launcher/uninstall?pin={}", h.pin))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(r["launcher"], false);
+}
+
+#[tokio::test]
+async fn app_menu_action_absent_on_a_plain_hub() {
+    let d = tempfile::tempdir().unwrap();
+    let h = hub(d.path()).await;
+    let cl = reqwest::Client::new();
+    let base = format!("http://{}", h.addr);
+    let r = cl.post(format!("{base}/api/native/launcher/install?pin={}", h.pin)).send().await.unwrap();
+    assert_eq!(r.status(), 404);
+    let info: Value = cl.get(format!("{base}/api/connect?pin={}", h.pin)).send().await.unwrap().json().await.unwrap();
+    assert!(info["launcher"].is_null());
+}

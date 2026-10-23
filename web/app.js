@@ -111,7 +111,7 @@
   var S = {
     settings: copy(DEFAULTS), text: '', html: '', name: '', rev: 0,
     pos: 0, playing: false, eta: null, displays: 0, remotes: 0, library: [], connected: false,
-    hasNative: false, libraryPath: '', errAt: 0, errMsg: ''
+    hasNative: false, launcher: null, libraryPath: '', errAt: 0, errMsg: ''
   };
   function copy(o) { var r = {}; for (var k in o) r[k] = o[k]; return r; }
 
@@ -393,6 +393,17 @@
     }
   }
 
+  function toggleLauncher() {
+    if (!S.hasNative || !link) return;
+    var act = S.launcher ? 'uninstall' : 'install';
+    xhr('POST', link.target.host, '/api/native/launcher/' + act, link.target.pin, '', function (code, body) {
+      var r = safeParse(body) || {};
+      if (typeof r.launcher === 'boolean') S.launcher = r.launcher;
+      toast(code === 200 ? t(S.launcher ? 'menu_added' : 'menu_removed') : (r.message || t('menu_fail')));
+      if (view && view.panel) view.panel.refreshLauncher();
+    });
+  }
+
   function toggleSwitch(k) {
     sendSet(k, !S.settings[k]);
     if (view && view.onSettings) view.onSettings([k]);
@@ -585,6 +596,11 @@
     });
     self.body.appendChild(el('div', { class: 'ctl' }, [el('div', { class: 'lab' }, el('span', { text: t('font') })), fsel]));
     self.body.appendChild(el('div', { class: 'row' }, [el('button', { text: t('keys_title'), onclick: function () { showHelp(); } })]));
+    // desktop app only: add / remove the per-user app-menu entry (nothing is installed unless asked)
+    self.launcherBtn = el('button', { onclick: function () { toggleLauncher(); } });
+    self.launcherRow = el('div', { class: 'row', style: 'display:none' }, [self.launcherBtn]);
+    self.body.appendChild(self.launcherRow);
+    self.refreshLauncher();
     self.refresh();
   };
 
@@ -685,6 +701,13 @@
     self.body.appendChild(self.filesBox);
     self.setPreview(false);
     self.refreshLibrary();
+  };
+
+  Panel.prototype.refreshLauncher = function () {
+    if (this.tab !== 'controls' || !this.launcherRow) return;
+    var show = S.hasNative && S.launcher !== null;
+    this.launcherRow.style.display = show ? '' : 'none';
+    if (show) this.launcherBtn.textContent = t(S.launcher ? 'menu_remove' : 'menu_add');
   };
 
   Panel.prototype.refreshPath = function () {
@@ -1075,7 +1098,8 @@
       if (!info) return;
       S.libraryPath = info.library || '';
       S.hasNative = !!info.native && target.host === location.host && /^(127\.0\.0\.1|localhost|\[::1\])(:|$)/.test(location.host);
-      if (view && view.panel) view.panel.refreshPath();
+      S.launcher = typeof info.launcher === 'boolean' ? info.launcher : null;
+      if (view && view.panel) { view.panel.refreshPath(); view.panel.refreshLauncher(); }
     });
   }
 

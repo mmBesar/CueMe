@@ -1,0 +1,10 @@
+[package]
+name = "cue-launcher"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Optional per-user app-menu entry and icons for CueMe (Linux)"
+
+[dev-dependencies]
+tempfile = "3.27.0"
