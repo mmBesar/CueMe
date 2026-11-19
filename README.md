@@ -42,19 +42,19 @@ Get everything from the **[Releases page](https://github.com/mmBesar/CueMe/relea
 
 | You have | Download |
 |---|---|
-| Linux PC / laptop (amd64, arm64) | `CueMe-linux-<arch>.AppImage` (any distribution), `cueme-linux-<arch>.deb` (Debian, Ubuntu, Mint), `cueme-fedora-<arch>.rpm` (Fedora 44 and later), or `cueme-desktop-linux-<arch>.tar.gz` |
-| Linux riscv64 | `cueme-linux-riscv64.deb` or `cueme-desktop-linux-riscv64.tar.gz` (no AppImage or RPM) |
-| Android 8 or newer | `CueMe-android-modern.apk` |
-| **Android 6 / 7** | `CueMe-android6.apk` |
-| Server / Raspberry Pi / no screen | `cueme-serve-linux-<arch>` (one file) or the Docker image (see below) |
+| Linux PC / laptop (amd64, arm64) | `CueMe-<version>-linux-<arch>.AppImage` (any distribution), `CueMe-<version>-linux-<arch>.deb` (Debian, Ubuntu, Mint), `CueMe-<version>-fedora-<arch>.rpm` (Fedora 44 and later), or `CueMe-<version>-linux-<arch>.tar.gz` |
+| Linux riscv64 | `CueMe-<version>-linux-riscv64.deb` or `CueMe-<version>-linux-riscv64.tar.gz` (no AppImage or RPM) |
+| Android 8 or newer | `CueMe-<version>-android-modern.apk` |
+| **Android 6 / 7** | `CueMe-<version>-android6.apk` |
+| Server / Raspberry Pi / no screen | `CueMe-hub-<version>-linux-<arch>` (one file) or the Docker image (see below) |
 
 ### Installing on Linux
 
 | Package | How |
 |---|---|
-| **AppImage** (portable, carries its own libraries) | `chmod +x CueMe-linux-amd64.AppImage`, then `./CueMe-linux-amd64.AppImage` |
-| **.deb** (Debian, Ubuntu, Mint) | `sudo apt install ./cueme-linux-amd64.deb` |
-| **.rpm** (Fedora 44 and later) | `sudo dnf install ./cueme-fedora-amd64.rpm` |
+| **AppImage** (portable, carries its own libraries) | `chmod +x CueMe-*.AppImage`, then `./CueMe-<version>-linux-amd64.AppImage` |
+| **.deb** (Debian, Ubuntu, Mint) | `sudo apt install ./CueMe-<version>-linux-amd64.deb` |
+| **.rpm** (Fedora 44 and later) | `sudo dnf install ./CueMe-<version>-fedora-amd64.rpm` |
 | **tar.gz** | unpack it, run `./cueme`; needs `libwebkit2gtk-4.1` and `gtk3` from your distribution (Arch: `sudo pacman -S webkit2gtk-4.1 gtk3`) |
 
 Use `arm64` instead of `amd64` on an ARM computer. The `.deb` and `.rpm` put CueMe in your app menu themselves, with every icon size.
@@ -62,7 +62,7 @@ Use `arm64` instead of `amd64` on an ARM computer. The `.deb` and `.rpm` put Cue
 **The AppImage never changes anything by itself.** It does not add a menu entry or icons when you start it. If you want CueMe in your app menu, first put the file where it should stay (for example `~/Applications`), then do one of these:
 
 - in the app: **Controls, Add to app menu** (the button is only there in the desktop app, and only when the entry is not installed yet), or
-- in a terminal: `./CueMe-linux-amd64.AppImage --install-launcher`
+- in a terminal: `./CueMe-<version>-linux-amd64.AppImage --install-launcher`
 
 This writes a menu entry and the icons (16, 24, 32, 48, 64, 128, 256, 512 and an SVG) in `~/.local/share`, for your user only. It never overwrites a `cueme.desktop` that it did not create itself, and the entry points to the AppImage file, so if you move the file, run the command again. To undo it, press **Remove from app menu** or run `--uninstall-launcher`; that removes exactly what was added and nothing else. The tarball's program accepts the same two options.
 

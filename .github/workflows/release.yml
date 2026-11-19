@@ -56,6 +56,8 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v6
+      - name: Version for file names
+        run: echo "VERSION=$(scripts/version.sh)" >> "$GITHUB_ENV"
       - name: Make sure Rust is installed
         run: |
           if ! command -v cargo >/dev/null; then
@@ -90,10 +92,10 @@ jobs:
       - name: Name the file
         run: |
           mkdir -p dist
-          cp target/${{ matrix.target }}/release/cueme-serve dist/cueme-serve-linux-${{ matrix.arch }}
+          cp target/${{ matrix.target }}/release/cueme-serve "dist/CueMe-hub-${VERSION}-linux-${{ matrix.arch }}"
       - uses: actions/upload-artifact@v6
         with:
-          name: hub-${{ matrix.arch }}
+          name: CueMe-${{ env.VERSION }}-hub-${{ matrix.arch }}
           path: dist/*
 
   # ------------------------------------------------------------------
@@ -112,6 +114,8 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v6
+      - name: Version for file names
+        run: echo "VERSION=$(scripts/version.sh)" >> "$GITHUB_ENV"
       - name: Install GTK / WebKit and packaging tools
         run: |
           sudo apt-get update
@@ -127,12 +131,12 @@ jobs:
       - name: Collect files
         run: |
           mkdir -p dist
-          cp src-tauri/target/release/bundle/appimage/*.AppImage "dist/CueMe-linux-${{ matrix.arch }}.AppImage"
-          cp src-tauri/target/release/bundle/deb/*.deb "dist/cueme-linux-${{ matrix.arch }}.deb"
-          scripts/make-tarball.sh "${{ matrix.arch }}" src-tauri/target/release/cueme "dist/cueme-desktop-linux-${{ matrix.arch }}.tar.gz"
+          cp src-tauri/target/release/bundle/appimage/*.AppImage "dist/CueMe-${VERSION}-linux-${{ matrix.arch }}.AppImage"
+          cp src-tauri/target/release/bundle/deb/*.deb "dist/CueMe-${VERSION}-linux-${{ matrix.arch }}.deb"
+          scripts/make-tarball.sh "${{ matrix.arch }}" src-tauri/target/release/cueme "dist/CueMe-${VERSION}-linux-${{ matrix.arch }}.tar.gz"
       - uses: actions/upload-artifact@v6
         with:
-          name: desktop-${{ matrix.arch }}
+          name: CueMe-${{ env.VERSION }}-desktop-${{ matrix.arch }}
           path: dist/*
 
   # ------------------------------------------------------------------
@@ -156,6 +160,8 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v6
+      - name: Version for file names
+        run: echo "VERSION=$(scripts/version.sh)" >> "$GITHUB_ENV"
       - name: Build the RPM in a Fedora 44 container
         run: |
           mkdir -p rpm-out
@@ -164,13 +170,14 @@ jobs:
             registry.fedoraproject.org/fedora:44 \
             bash /src/scripts/build-rpm.sh /src /out "${{ matrix.arch }}"
           sudo chown -R "$(id -u):$(id -g)" rpm-out
+          mv "rpm-out/cueme-fedora-${{ matrix.arch }}.rpm" "rpm-out/CueMe-${VERSION}-fedora-${{ matrix.arch }}.rpm"
       - name: Check what is inside
         run: |
           docker run --rm -v "$PWD/rpm-out:/out:ro" registry.fedoraproject.org/fedora:44 \
-            bash -c 'rpm -qpl /out/cueme-fedora-${{ matrix.arch }}.rpm && rpm -qp --requires /out/cueme-fedora-${{ matrix.arch }}.rpm'
+            bash -c 'rpm -qpl /out/CueMe-*.rpm && rpm -qp --requires /out/CueMe-*.rpm'
       - uses: actions/upload-artifact@v6
         with:
-          name: desktop-rpm-${{ matrix.arch }}
+          name: CueMe-${{ env.VERSION }}-fedora-rpm-${{ matrix.arch }}
           path: rpm-out/*.rpm
 
   # ------------------------------------------------------------------
@@ -183,8 +190,11 @@ jobs:
   desktop-riscv64:
     needs: test
     runs-on: ubuntu-24.04-riscv
+    timeout-minutes: 120   # a native riscv64 build is slow, but a stuck job should fail, not hang for 6 hours
     steps:
       - uses: actions/checkout@v6
+      - name: Version for file names
+        run: echo "VERSION=$(scripts/version.sh)" >> "$GITHUB_ENV"
       - name: Make sure Rust is installed
         run: |
           if ! command -v cargo >/dev/null; then
@@ -201,12 +211,12 @@ jobs:
       - name: Tarball
         run: |
           mkdir -p dist
-          scripts/make-tarball.sh riscv64 src-tauri/target/release/cueme dist/cueme-desktop-linux-riscv64.tar.gz
+          scripts/make-tarball.sh riscv64 src-tauri/target/release/cueme "dist/CueMe-${VERSION}-linux-riscv64.tar.gz"
       - name: Debian package
-        run: scripts/make-deb.sh riscv64 src-tauri/target/release/cueme dist/cueme-linux-riscv64.deb
+        run: scripts/make-deb.sh riscv64 src-tauri/target/release/cueme "dist/CueMe-${VERSION}-linux-riscv64.deb"
       - uses: actions/upload-artifact@v6
         with:
-          name: desktop-riscv64
+          name: CueMe-${{ env.VERSION }}-desktop-riscv64
           path: dist/*
 
   # ------------------------------------------------------------------
@@ -217,58 +227,18 @@ jobs:
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v6
-      - name: Rust Android targets
-        run: rustup target add armv7-linux-androideabi aarch64-linux-android x86_64-linux-android i686-linux-android
-      - name: Install cargo-ndk
-        run: cargo install cargo-ndk --locked
-      - name: Android SDK pieces
-        run: |
-          # the SDK tool is preinstalled; look it up instead of assuming where the image keeps it
-          SDKM="$(command -v sdkmanager || true)"
-          [ -n "$SDKM" ] || SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          yes | "$SDKM" --licenses >/dev/null || true
-          "$SDKM" "platforms;android-34" "build-tools;34.0.0" >/dev/null
-      - uses: actions/setup-java@v5
+      - name: Version for file names
+        run: echo "VERSION=$(scripts/version.sh)" >> "$GITHUB_ENV"
+      - uses: ./.github/actions/build-android
         with:
-          distribution: temurin
-          java-version: '21'
-      - name: Install Gradle
-        run: |
-          curl -fsSL https://services.gradle.org/distributions/gradle-8.14.6-bin.zip -o "$RUNNER_TEMP/gradle.zip"
-          unzip -q "$RUNNER_TEMP/gradle.zip" -d "$HOME"
-          echo "$HOME/gradle-8.14.6/bin" >> "$GITHUB_PATH"
-      - name: Optional release signing key (repository secrets)
-        env:
-          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
-        run: |
-          if [ -n "$KEYSTORE_B64" ]; then
-            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
-            echo "CUEME_KEYSTORE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
-            echo "CUEME_KEYSTORE_PASSWORD=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >> "$GITHUB_ENV"
-            echo "CUEME_KEY_ALIAS=${{ secrets.ANDROID_KEY_ALIAS }}" >> "$GITHUB_ENV"
-            echo "CUEME_KEY_PASSWORD=${{ secrets.ANDROID_KEY_PASSWORD }}" >> "$GITHUB_ENV"
-          else
-            echo "No signing secrets: APKs will be signed with the debug key (installable, but updates need the same key)."
-          fi
-      - name: Build both APKs
-        env:
-          # tag v0.2.3 -> versionName 0.2.3, versionCode 20300 (always grows, so updates install over old ones)
-          CUEME_VERSION_FROM_REF: ${{ github.ref_name }}
-        run: |
-          V="${CUEME_VERSION_FROM_REF#v}"
-          if echo "$V" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-            export CUEME_VERSION="$V"
-            export CUEME_VERSION_CODE=$(echo "$V" | awk -F. '{print $1*10000+$2*100+$3}')
-          fi
-          scripts/build-android.sh
-      - name: Collect files
-        run: |
-          mkdir -p dist
-          cp android/app/build/outputs/apk/legacy/release/*.apk dist/CueMe-android6.apk
-          cp android/app/build/outputs/apk/modern/release/*.apk dist/CueMe-android-modern.apk
+          version: ${{ env.VERSION }}
+          keystore-b64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          keystore-password: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          key-alias: ${{ secrets.ANDROID_KEY_ALIAS }}
+          key-password: ${{ secrets.ANDROID_KEY_PASSWORD }}
       - uses: actions/upload-artifact@v6
         with:
-          name: android
+          name: CueMe-${{ env.VERSION }}-android
           path: dist/*
 
   # ------------------------------------------------------------------
@@ -291,9 +261,11 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v6
+      - name: Version for file names
+        run: echo "VERSION=$(scripts/version.sh)" >> "$GITHUB_ENV"
       - uses: actions/download-artifact@v7
         with:
-          name: hub-${{ matrix.arch }}
+          name: CueMe-${{ env.VERSION }}-hub-${{ matrix.arch }}
           path: docker/
       - name: Lowercase image name (GHCR needs it)
         run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/cueme" >> "$GITHUB_ENV"
@@ -311,7 +283,7 @@ jobs:
           context: docker
           file: docker/Dockerfile
           platforms: linux/${{ matrix.arch }}
-          build-args: HUB_BINARY=cueme-serve-linux-${{ matrix.arch }}
+          build-args: HUB_BINARY=CueMe-hub-${{ env.VERSION }}-linux-${{ matrix.arch }}
           push: true
           sbom: true
           tags: ${{ env.IMAGE }}:${{ github.sha }}-${{ matrix.arch }}
@@ -363,7 +335,7 @@ jobs:
           path: dist
           merge-multiple: true
           # only our own downloads (never Docker's build-record artifacts)
-          pattern: "{hub-*,desktop-*,android}"
+          pattern: "CueMe-*"
       - name: Checksums
         run: cd dist && sha256sum * > SHA256SUMS.txt && ls -la
       - name: Create the release

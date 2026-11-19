@@ -1,0 +1,88 @@
+name: Build the Android APKs
+description: >
+  Builds both APKs (Android 6+ and modern). Signs them with the release key when the key is
+  given, so a build from any branch, released or not, installs OVER the previous one without
+  uninstalling. Used by release.yml and android.yml. Run actions/checkout first.
+inputs:
+  version:
+    description: versionName, e.g. 0.5.0 or 0.5.0-dev.1d29b03
+    required: true
+  keystore-b64:
+    description: the release keystore, base64 (secret ANDROID_KEYSTORE_B64)
+    required: false
+    default: ""
+  keystore-password:
+    required: false
+    default: ""
+  key-alias:
+    required: false
+    default: ""
+  key-password:
+    required: false
+    default: ""
+runs:
+  using: composite
+  steps:
+    - name: Rust Android targets
+      shell: bash
+      run: rustup target add armv7-linux-androideabi aarch64-linux-android x86_64-linux-android i686-linux-android
+    - name: Install cargo-ndk
+      shell: bash
+      run: cargo install cargo-ndk --locked
+    - name: Android SDK pieces
+      shell: bash
+      run: |
+        # the SDK tool is preinstalled; look it up instead of assuming where the image keeps it
+        SDKM="$(command -v sdkmanager || true)"
+        [ -n "$SDKM" ] || SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+        yes | "$SDKM" --licenses >/dev/null || true
+        "$SDKM" "platforms;android-34" "build-tools;34.0.0" >/dev/null
+    - uses: actions/setup-java@v5
+      with:
+        distribution: temurin
+        java-version: '21'
+    - name: Install Gradle
+      shell: bash
+      run: |
+        curl -fsSL https://services.gradle.org/distributions/gradle-8.14.6-bin.zip -o "$RUNNER_TEMP/gradle.zip"
+        unzip -q "$RUNNER_TEMP/gradle.zip" -d "$HOME"
+        echo "$HOME/gradle-8.14.6/bin" >> "$GITHUB_PATH"
+    - name: Release signing key (when given)
+      shell: bash
+      env:
+        KEYSTORE_B64: ${{ inputs.keystore-b64 }}
+        KS_PASS: ${{ inputs.keystore-password }}
+        KEY_ALIAS: ${{ inputs.key-alias }}
+        KEY_PASS: ${{ inputs.key-password }}
+      run: |
+        if [ -n "$KEYSTORE_B64" ]; then
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          {
+            echo "CUEME_KEYSTORE=$RUNNER_TEMP/release.jks"
+            echo "CUEME_KEYSTORE_PASSWORD=$KS_PASS"
+            echo "CUEME_KEY_ALIAS=$KEY_ALIAS"
+            echo "CUEME_KEY_PASSWORD=$KEY_PASS"
+          } >> "$GITHUB_ENV"
+          echo "Signing with the release key."
+        else
+          echo "::warning::No signing secrets here: the APKs get the debug key, so they will NOT install over a release build (uninstall first)."
+        fi
+    - name: Build both APKs
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+      run: |
+        # versionName = the version; versionCode = minutes since 2026-01-01, so EVERY build
+        # (tag or not) has a higher code than the one before and Android installs it as an update
+        export CUEME_VERSION="$VERSION"
+        export CUEME_VERSION_CODE=$(( ( $(date +%s) - 1767225600 ) / 60 ))
+        echo "versionName $CUEME_VERSION, versionCode $CUEME_VERSION_CODE"
+        scripts/build-android.sh
+    - name: Name the files
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+      run: |
+        mkdir -p dist
+        cp android/app/build/outputs/apk/legacy/release/*.apk "dist/CueMe-${VERSION}-android6.apk"
+        cp android/app/build/outputs/apk/modern/release/*.apk "dist/CueMe-${VERSION}-android-modern.apk"

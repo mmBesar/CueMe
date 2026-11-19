@@ -6,7 +6,7 @@
 set -euo pipefail
 ARCH="$1"; BIN="$2"; OUT="$(realpath -m "$3")"
 cd "$(dirname "$0")/.."
-VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' src-tauri/Cargo.toml | head -1)"
+VERSION="${VERSION:-$(sed -n 's/^version = "\(.*\)"/\1/p' src-tauri/Cargo.toml | head -1)}"   # VERSION from scripts/version.sh in CI
 NAME="cueme-${VERSION}-linux-${ARCH}"
 STAGE="$(mktemp -d)/$NAME"
 mkdir -p "$STAGE/share/applications" "$STAGE/share/icons/hicolor/scalable/apps"

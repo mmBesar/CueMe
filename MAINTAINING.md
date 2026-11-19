@@ -39,11 +39,17 @@ To install an APK: open it on the phone and allow "install from this source" onc
 
 
 ## Releases and the version
-- Push a tag: `git tag -a v0.4.0 -m "CueMe 0.4.0" && git push origin v0.3.0`. The workflow builds on **native runners** (no QEMU). The desktop AppImage/.deb and riscv64 use **Ubuntu 24.04** runners (`ubuntu-24.04`, `-arm`, `-riscv`) on purpose: an AppImage bundles GTK/WebKit that need at least the glibc of the system that built them, so building on the newest LTS breaks it on older distros (NixOS 26.05 failed). Everything glibc-independent (hub, Android, Docker, tests) uses `ubuntu-26.04`. Revisit when the oldest distro you care about has glibc 2.43. NixOS users build from `flake.nix` (`nix/package.nix`); after changing Rust dependencies in `src-tauri/` the lock file is used as is, so a failed Nix build usually means a missing system library in `nix/package.nix`.
+- Push a tag: `git tag -a v0.5.0 -m "CueMe 0.5.0" && git push origin v0.5.0`. The workflow builds on **native runners** (no QEMU). The desktop AppImage/.deb and riscv64 use **Ubuntu 24.04** runners (`ubuntu-24.04`, `-arm`, `-riscv`) on purpose: an AppImage bundles GTK/WebKit that need at least the glibc of the system that built them, so building on the newest LTS breaks it on older distros (NixOS 26.05 failed). Everything glibc-independent (hub, Android, Docker, tests) uses `ubuntu-26.04`. Revisit when the oldest distro you care about has glibc 2.43. NixOS users build from `flake.nix` (`nix/package.nix`); after changing Rust dependencies in `src-tauri/` the lock file is used as is, so a failed Nix build usually means a missing system library in `nix/package.nix`.
 - The tag becomes the Android version (`v0.2.3` -> versionName 0.2.3, versionCode 20300).
 - Desktop jobs use the newest Ubuntu runner on purpose: newest WebKitGTK/libraries, so the apps follow current distributions without repo changes. Change the runner labels in `release.yml` when a newer one appears.
 - The release job downloads only `hub-*`, `desktop-*` and `android` artifacts. Docker's build-record artifacts (`*.dockerbuild`) are switched off (`DOCKER_BUILD_RECORD_UPLOAD`), because downloading them failed the release step.
 - Docker image: `ghcr.io/mmbesar/cueme` (`latest` + version tag), per-CPU images joined by the `docker-manifest` job. The image is public only after you make the package public in GitHub (Packages -> package settings).
+
+## File names, versions and signed test builds
+
+- **Every download carries its version, released or not.** `scripts/version.sh` gives `0.5.0` for a tag build and `0.5.0-dev.<commit>` for any other build (0.5.0 = the version in `src-tauri/Cargo.toml`). File names are `CueMe-<version>-<kind>-<arch>.<ext>` (APKs: `CueMe-<version>-android6.apk`, `-android-modern.apk`; hub: `CueMe-hub-<version>-linux-<arch>`), and the zip of every workflow artifact is named `CueMe-<version>-<what>` (`-android`, `-desktop-amd64`, `-fedora-rpm-arm64`, `-hub-amd64`...), so a downloaded zip says what it is.
+- **When you bump the version, update BOTH lock files**: `cargo update --workspace` in the repo root AND in `src-tauri/`. The RPM build uses `--locked` and fails when `src-tauri/Cargo.lock` still has the old version; CI now checks both lock files.
+- **Android test builds install over each other.** `android.yml` builds on every push to `main` (and by hand) and signs with the same release key; `release.yml` does it for tags. Both use `.github/actions/build-android`. Every build gets `versionCode` = minutes since 2026-01-01, so each build, tagged or not, is newer than the one before and Android updates in place (no uninstall). Pull requests are never built with the key. If the signing secrets are missing, the build falls back to the debug key and says so in the log: that APK will not install over a release build.
 
 ## Linux packaging: what is built, and every workaround
 
@@ -52,10 +58,10 @@ One set of files describes the desktop entry and icons for every package:
 
 | Output | Made by | Contains |
 |---|---|---|
-| `CueMe-linux-<arch>.AppImage` | `tauri build` on Ubuntu 24.04 | program + its own GTK/WebKit, all icons, SVG |
-| `cueme-linux-<arch>.deb` | `tauri build` (riscv64: `scripts/make-deb.sh`) | `/usr/bin/cueme`, desktop entry, all icons, SVG |
-| `cueme-fedora-<arch>.rpm` | `scripts/build-rpm.sh` in a Fedora 44 container | same files; needs `webkit2gtk4.1`, `gtk3` |
-| `cueme-desktop-linux-<arch>.tar.gz` | `scripts/make-tarball.sh` | `cueme`, `share/` with desktop entry + icons, README.txt |
+| `CueMe-<version>-linux-<arch>.AppImage` | `tauri build` on Ubuntu 24.04 | program + its own GTK/WebKit, all icons, SVG |
+| `CueMe-<version>-linux-<arch>.deb` | `tauri build` (riscv64: `scripts/make-deb.sh`) | `/usr/bin/cueme`, desktop entry, all icons, SVG |
+| `CueMe-<version>-fedora-<arch>.rpm` | `scripts/build-rpm.sh` in a Fedora 44 container | same files; needs `webkit2gtk4.1`, `gtk3` |
+| `CueMe-<version>-linux-<arch>.tar.gz` | `scripts/make-tarball.sh` | `cueme`, `share/` with desktop entry + icons, README.txt |
 | riscv64 | cargo + `make-deb.sh` + `make-tarball.sh` | deb and tar.gz only |
 
 Workarounds, and why each one exists (remove them when the reason is gone):

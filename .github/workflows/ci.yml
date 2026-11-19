@@ -21,6 +21,11 @@ jobs:
       - uses: actions/checkout@v6
       - name: Rust tests
         run: cargo test --workspace
+      # the RPM build uses --locked: both lock files must match the version in Cargo.toml
+      - name: Lock files are up to date
+        run: |
+          cargo metadata --locked --format-version 1 >/dev/null
+          cargo metadata --locked --format-version 1 --manifest-path src-tauri/Cargo.toml >/dev/null
 
   # 2) Web UI: unit tests, old-browser syntax check, and the full browser test
   #    (a real hub + a real Chromium: one display page, one remote page)

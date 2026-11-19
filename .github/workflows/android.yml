@@ -1,0 +1,37 @@
+# Android APKs for every push to main (and by hand), signed with the release key, so you can
+# install each one over the previous without uninstalling. Releases use release.yml.
+#
+# Pull requests are NOT built here on purpose: a pull request from a fork must never see the
+# signing key. Only pushes to main of THIS repository (and manual runs) get it.
+name: Android
+
+on:
+  push:
+    branches: [main]
+    paths: ['android/**', 'crates/**', 'web/**', 'scripts/build-android.sh', '.github/actions/build-android/**', '.github/workflows/android.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  apk:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Version for file names
+        run: echo "VERSION=$(scripts/version.sh)" >> "$GITHUB_ENV"
+      - uses: ./.github/actions/build-android
+        with:
+          version: ${{ env.VERSION }}
+          keystore-b64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          keystore-password: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          key-alias: ${{ secrets.ANDROID_KEY_ALIAS }}
+          key-password: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      - uses: actions/upload-artifact@v6
+        with:
+          name: CueMe-${{ env.VERSION }}-android
+          path: dist/*
