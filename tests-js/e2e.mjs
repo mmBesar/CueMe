@@ -569,6 +569,111 @@ await T('desktop app: "Add to app menu" button appears only in the app, toggles,
   await c.close();
 });
 
+await T('script editor: formatting tools, undo / redo, find / replace, tidy, direction, stats', async () => {
+  const ta = R.locator('textarea');
+  const val = () => ta.inputValue();
+  const tool = (title) => R.locator('.tools button[title^="' + title + '"]');
+  const sel = (a, b) => ta.evaluate((n, [x, y]) => { n.focus(); n.setSelectionRange(x, y); }, [a, b]);
+  await R.locator('button', { hasText: /^Edit$/ }).click();
+  await ta.fill('hello world');
+  assert.match(await R.locator('.ed-stats').textContent(), /2 words/);
+  assert.match(await R.locator('.ed-stats').textContent(), /not sent yet/);
+  // inline formatting
+  await sel(0, 5);
+  await tool('Bold').click();
+  assert.equal(await val(), '**hello** world');
+  await tool('Bold').click();
+  assert.equal(await val(), 'hello world', 'same button toggles it off');
+  // undo / redo from the buttons and from the keyboard
+  await tool('Undo').click();
+  assert.equal(await val(), '**hello** world');
+  await tool('Redo').click();
+  assert.equal(await val(), 'hello world');
+  await ta.focus();
+  await R.keyboard.press('Control+z');
+  assert.equal(await val(), '**hello** world');
+  await R.keyboard.press('Control+Shift+z');
+  assert.equal(await val(), 'hello world');
+  // headings and lists
+  await sel(2, 2);
+  await tool('Heading 2').click();
+  assert.equal(await val(), '## hello world');
+  await tool('Undo').click();
+  assert.equal(await val(), 'hello world');
+  await tool('Bullet list').click();
+  assert.equal(await val(), '- hello world');
+  await tool('Numbered list').click();
+  assert.equal(await val(), '1. hello world');
+  await tool('Undo').click();
+  await tool('Undo').click();
+  assert.equal(await val(), 'hello world');
+  // find: Enter jumps to the match and keeps going, without ever typing a line break
+  await ta.fill('one two one two one');
+  await ta.focus();
+  await R.keyboard.press('Control+f');
+  await R.locator('.findbar input[type=text]').first().fill('one');
+  assert.match(await R.locator('.find-info').textContent(), /3 found/);
+  await R.keyboard.press('Enter');
+  assert.deepEqual(await ta.evaluate((n) => [n.selectionStart, n.selectionEnd]), [0, 3]);
+  await R.keyboard.press('Enter'); // focus is in the text box now; Enter = next match
+  assert.deepEqual(await ta.evaluate((n) => [n.selectionStart, n.selectionEnd]), [8, 11]);
+  assert.equal(await val(), 'one two one two one', 'no line break was typed');
+  assert.match(await R.locator('.find-info').textContent(), /2 \/ 3/);
+  // replace one, then all, then undo both
+  await R.locator('.findbar input[type=text]').nth(1).fill('1');
+  await R.locator('.findbar button', { hasText: /^Replace$/ }).click();
+  assert.equal(await val(), 'one two 1 two one');
+  await R.locator('.findbar button', { hasText: /^Replace all$/ }).click();
+  assert.equal(await val(), '1 two 1 two 1');
+  await tool('Undo').click();
+  assert.equal(await val(), 'one two 1 two one');
+  await tool('Undo').click();
+  assert.equal(await val(), 'one two one two one');
+  await R.locator('.findbar button[title="Hide"]').click();
+  // tidy
+  await ta.fill('a  \n\n\n\nb');
+  await R.locator('.tools button', { hasText: /^Tidy$/ }).click();
+  assert.equal(await val(), 'a\n\nb');
+  // direction: Auto -> RTL -> LTR -> Auto
+  const dirBtn = R.locator('.tools button[title="Text direction"]');
+  assert.equal((await dirBtn.textContent()).trim(), 'Auto');
+  await dirBtn.click();
+  assert.equal(await ta.getAttribute('dir'), 'rtl');
+  await dirBtn.click();
+  assert.equal(await ta.getAttribute('dir'), 'ltr');
+  await dirBtn.click();
+  assert.equal(await ta.getAttribute('dir'), 'auto');
+  // Clear can be undone
+  await ta.fill('keep me');
+  R.once('dialog', (d) => d.accept());
+  await R.locator('button', { hasText: /^Clear$/ }).click();
+  await R.waitForFunction(() => document.querySelector('textarea').value === '');
+  await tool('Undo').click();
+  assert.equal(await val(), 'keep me');
+  // the tools are for editing: hidden in the preview
+  await R.locator('button', { hasText: /^Preview$/ }).click();
+  assert.equal(await R.locator('.tools').isVisible(), false);
+  await R.locator('button', { hasText: /^Edit$/ }).click();
+  assert.equal(await R.locator('.tools').isVisible(), true);
+});
+
+await T('script editor: unsent text and undo survive a tab switch; the draft is kept until the hub has the text', async () => {
+  const ta = R.locator('textarea');
+  await ta.fill('unsent draft text');
+  await R.locator('.tabs button').nth(0).click(); // Controls
+  await R.locator('.tabs button').nth(2).click(); // back to Script
+  assert.equal(await R.locator('textarea').inputValue(), 'unsent draft text');
+  assert.equal(await R.locator('.tools button[title^="Undo"]').isDisabled(), false, 'history was kept');
+  await sleep(600);
+  const drafts = await R.evaluate(() => Object.keys(localStorage).filter((k) => k.indexOf('cueme_draft:') === 0).map((k) => localStorage.getItem(k)));
+  assert.deepEqual(drafts, ['unsent draft text']);
+  await R.locator('button.primary', { hasText: 'Send to display' }).click();
+  await R.waitForFunction(() => document.getElementById('toast') && /Sent/.test(document.getElementById('toast').textContent));
+  await sleep(700);
+  assert.deepEqual(await R.evaluate(() => Object.keys(localStorage).filter((k) => k.indexOf('cueme_draft:') === 0)), [], 'sent: no draft left');
+  assert.doesNotMatch(await R.locator('.ed-stats').textContent(), /not sent yet/);
+});
+
 await T('no JavaScript errors on any page', async () => { assert.deepEqual(errors, []); });
 
 await browser.close();

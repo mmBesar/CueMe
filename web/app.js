@@ -646,21 +646,357 @@
     });
   };
 
+  /* ------------------------------------------------------------ script editor
+     The text tools live in editor.js (pure functions, unit-tested). Here they are wired to
+     the <textarea>: our OWN undo history (a touch keyboard has no Ctrl+Z, and the browser's
+     undo is lost whenever a tool changes the text), formatting buttons, find / replace,
+     clipboard buttons, text direction and size. */
+  var SVG_UNDO = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>';
+  var SVG_REDO = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="m15 14 5-5-5-5M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg>';
+
+  function lsGet(k, d) { try { var v = window.localStorage.getItem(k); return v === null ? d : v; } catch (e) { return d; } }
+  function lsSet(k, v) { try { window.localStorage.setItem(k, v); } catch (e) {} }
+  function lsRemove(k) { try { window.localStorage.removeItem(k); } catch (e) {} }
+
+  // copy text: the async clipboard where the page is secure, else a hidden box + execCommand
+  function copyText(text, done) {
+    function fallback() {
+      var tmp = el('textarea', { style: 'position:fixed;left:-9999px;top:0;opacity:0', readonly: true });
+      tmp.value = text;
+      document.body.appendChild(tmp);
+      tmp.select();
+      var ok = false;
+      try { ok = document.execCommand('copy'); } catch (e) {}
+      document.body.removeChild(tmp);
+      done(ok);
+    }
+    if (window.isSecureContext && navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { done(true); }, fallback);
+    } else fallback();
+  }
+
+  // y position (px inside the box) of character `pos`, measured with a hidden copy of the
+  // box: a textarea has no API for it, and long lines wrap
+  function yOfPos(ta, pos) {
+    var cs = window.getComputedStyle(ta);
+    var m = document.createElement('div');
+    var props = ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing', 'wordSpacing', 'textAlign', 'unicodeBidi', 'direction', 'whiteSpace', 'wordWrap', 'overflowWrap', 'tabSize'];
+    for (var i = 0; i < props.length; i++) { try { m.style[props[i]] = cs[props[i]]; } catch (e) {} }
+    m.setAttribute('dir', ta.getAttribute('dir') || 'auto');
+    m.style.position = 'absolute';
+    m.style.visibility = 'hidden';
+    m.style.left = '-99999px';
+    m.style.top = '0';
+    m.style.boxSizing = 'content-box';
+    m.style.whiteSpace = 'pre-wrap';
+    m.style.wordWrap = 'break-word';
+    m.style.width = (ta.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)) + 'px';
+    m.textContent = ta.value.slice(0, pos);
+    var mark = document.createElement('span');
+    mark.textContent = '​';
+    m.appendChild(mark);
+    document.body.appendChild(m);
+    var y = mark.offsetTop;
+    document.body.removeChild(m);
+    return y;
+  }
+
+  function draftKey() {
+    var tg = link && link.target;
+    return 'cueme_draft:' + (tg ? tg.host + '/' + (tg.room || '') : '');
+  }
+  var draftTimer = 0;
+  // reads the LATEST state (not a closure): a panel that was rebuilt meanwhile must not
+  // bring back a draft that was just sent
+  function saveDraft() {
+    var e = S.editor;
+    if (!e) return;
+    if (e.dirty && e.text.length < 1000000) lsSet(e.key, e.text); else lsRemove(e.key);
+  }
+  function fmtTime(sec) {
+    var m = Math.floor(sec / 60), r = sec % 60;
+    return m + ':' + (r < 10 ? '0' : '') + r;
+  }
+
   Panel.prototype.buildScript = function () {
     var self = this;
+    var ED = window.CueEditor;
     var ta = el('textarea', { dir: 'auto', spellcheck: 'false', placeholder: '# ...' });
     self.ta = ta;
-    ta.value = S.text;
+    function snap() { return ED.state(ta.value, ta.selectionStart, ta.selectionEnd); }
+    // Unsent text and the undo history survive a tab switch (this panel is rebuilt each time)
+    // and, as a draft in this browser, a reload or an app restart. Sending, saving or Clear
+    // end the draft.
+    var dk = draftKey();
+    var keep = S.editor && S.editor.key === dk ? S.editor : null;
+    var initial = S.text, restored = false;
     self.dirty = false;
-    ta.addEventListener('input', function () {
+    if (keep && keep.dirty) { initial = keep.text; self.dirty = true; }
+    else if (!keep) {
+      var saved = lsGet(dk, null);
+      if (saved !== null && saved !== S.text) { initial = saved; self.dirty = true; restored = true; }
+    }
+    ta.value = initial;
+    var hist = keep ? keep.hist : new ED.History();
+    self.hist = hist;
+    if (!keep) hist.reset(snap());
+    else if (hist.cur().v !== ta.value) hist.record(snap(), Date.now(), false);
+    var justFound = false; // a find just selected a match: Enter means "next match", not a line break
+
+    // ---- state in / out of the box
+    function refreshTools() {
+      var s = ED.stats(ta.value);
+      self.statBox.textContent = s.words + ' ' + t('ed_words') + ' \u00B7 ' + s.chars + ' ' + t('ed_chars') + ' \u00B7 ' + s.lines + ' ' + t('ed_lines') +
+        (s.words ? ' \u00B7 \u2248 ' + fmtTime(s.seconds) : '') + (self.dirty ? ' \u00B7 \u25CF ' + t('ed_unsent') : '');
+      S.editor = { key: dk, text: ta.value, dirty: self.dirty, hist: hist };
+      clearTimeout(draftTimer);
+      draftTimer = setTimeout(saveDraft, 400);
+      self.undoBtn.disabled = !hist.canUndo();
+      self.redoBtn.disabled = !hist.canRedo();
+      if (self.findBar.style.display !== 'none') refreshFindInfo();
+    }
+    self.refreshTools = refreshTools;
+    function put(a) { // write a state into the box without touching the history
+      var top = ta.scrollTop;
+      ta.value = a.v;
+      try { ta.setSelectionRange(a.s, a.e); } catch (e) {}
+      ta.scrollTop = top;
       self.dirty = true;
       if (self.previewMode) self.schedulePreview();
+    }
+    function change(a) { // a tool button's edit: one undo step of its own
+      put(a);
+      hist.record(snap(), Date.now(), false);
+      justFound = false;
+      refreshTools();
+    }
+    function undo() { var a = hist.undo(); if (a) { put(a); refreshTools(); } }
+    function redo() { var a = hist.redo(); if (a) { put(a); refreshTools(); } }
+    // text that arrives from outside (another device, a loaded file, Clear) is a step too,
+    // so a wrong click can always be undone
+    self.externalText = function (v) {
+      var a = ED.state(v, 0, 0);
+      put(a);
+      self.dirty = false;
+      hist.record(snap(), Date.now(), false);
+      refreshTools();
+    };
+
+    ta.addEventListener('input', function () {
+      self.dirty = true;
+      justFound = false;
+      hist.record(snap(), Date.now(), true);
+      refreshTools();
+      if (self.previewMode) self.schedulePreview();
     });
+    // phones: some keyboards ask the page for undo / redo
+    ta.addEventListener('beforeinput', function (e) {
+      if (e.inputType === 'historyUndo') { e.preventDefault(); undo(); }
+      else if (e.inputType === 'historyRedo') { e.preventDefault(); redo(); }
+    });
+    ta.addEventListener('mousedown', function () { justFound = false; });
+    ta.addEventListener('keydown', function (e) {
+      var k = (e.key || '').toLowerCase();
+      var mod = e.ctrlKey || e.metaKey;
+      if (mod && !e.altKey) {
+        if (k === 'z') { e.preventDefault(); if (e.shiftKey) redo(); else undo(); }
+        else if (k === 'y') { e.preventDefault(); redo(); }
+        else if (k === 'b') { e.preventDefault(); change(ED.wrap(snap(), '**')); }
+        else if (k === 'i') { e.preventDefault(); change(ED.wrap(snap(), '*')); }
+        else if (k === 'f' || k === 'h') { e.preventDefault(); openFind(k === 'h'); }
+        else if (k === 'g') { e.preventDefault(); findNext(e.shiftKey ? -1 : 1); }
+        return;
+      }
+      if (e.key === 'F3') { e.preventDefault(); findNext(e.shiftKey ? -1 : 1); return; }
+      if (e.key === 'Enter' && justFound && self.findBar.style.display !== 'none') {
+        e.preventDefault();
+        findNext(e.shiftKey ? -1 : 1);
+        return;
+      }
+      if (e.key === 'Escape' && self.findBar.style.display !== 'none') { closeFind(); return; }
+      if (e.key !== 'Shift' && e.key !== 'Control' && e.key !== 'Alt' && e.key !== 'Meta') justFound = false;
+    });
+
+    // ---- toolbar
+    function tb(label, title, fn, cls) {
+      var b = el('button', { type: 'button', class: 'tb' + (cls ? ' ' + cls : ''), title: title, 'aria-label': title });
+      if (label.indexOf('<svg') === 0) b.innerHTML = label; else b.textContent = label;
+      // a press must not take the focus (or the on-screen keyboard) away from the text box
+      b.addEventListener('mousedown', function (e) { e.preventDefault(); });
+      b.addEventListener('click', function () { fn(); });
+      return b;
+    }
+    function sep() { return el('span', { class: 'sep' }); }
+    function wrapper(m) { return function () { change(ED.wrap(snap(), m)); }; }
+    function head(n) { return function () { change(ED.heading(snap(), n)); }; }
+    function lst(kind) { return function () { change(ED.list(snap(), kind)); }; }
+
+    self.undoBtn = tb(SVG_UNDO, t('ed_undo') + ' (Ctrl+Z)', undo);
+    self.redoBtn = tb(SVG_REDO, t('ed_redo') + ' (Ctrl+Y)', redo);
+    var dirBtn;
+    function applyDir(mode) {
+      ta.setAttribute('dir', mode);
+      ta.style.unicodeBidi = mode === 'auto' ? '' : 'normal';
+      dirBtn.textContent = mode === 'auto' ? t('ed_dir_auto') : mode.toUpperCase();
+    }
+    var dirMode = lsGet('cueme_ed_dir', 'auto');
+    if (dirMode !== 'rtl' && dirMode !== 'ltr') dirMode = 'auto';
+    dirBtn = tb('', t('ed_dir'), function () {
+      dirMode = dirMode === 'auto' ? 'rtl' : dirMode === 'rtl' ? 'ltr' : 'auto';
+      lsSet('cueme_ed_dir', dirMode);
+      applyDir(dirMode);
+    }, 'txt');
+    applyDir(dirMode);
+    var fsz = parseInt(lsGet('cueme_ed_fs', '18'), 10);
+    if (!(fsz >= 12 && fsz <= 40)) fsz = 18;
+    ta.style.fontSize = fsz + 'px';
+    function size(d) {
+      fsz = Math.max(12, Math.min(40, fsz + d));
+      ta.style.fontSize = fsz + 'px';
+      lsSet('cueme_ed_fs', String(fsz));
+    }
+
+    function clipDone(ok, what) { toast(ok ? t(what) : t('ed_copy_failed')); }
+    function selText() { var a = snap(); return ta.value.slice(a.s, a.e); }
+    function doCopy() {
+      var s = selText();
+      copyText(s || ta.value, function (ok) { clipDone(ok, 'ed_copied'); });
+    }
+    function doCut() {
+      var s = selText();
+      if (!s) { toast(t('ed_select_first')); return; }
+      copyText(s, function (ok) {
+        if (!ok) { clipDone(false); return; }
+        var a = snap();
+        change(ED.state(ta.value.slice(0, a.s) + ta.value.slice(a.e), a.s));
+        toast(t('ed_copied'));
+      });
+    }
+    function doPaste() {
+      if (window.isSecureContext && navigator.clipboard && navigator.clipboard.readText) {
+        navigator.clipboard.readText().then(function (txt) {
+          if (!txt) return;
+          var a = snap();
+          change(ED.state(ta.value.slice(0, a.s) + txt + ta.value.slice(a.e), a.s + txt.length));
+        }, function () { toast(t('ed_paste_hint')); });
+      } else toast(t('ed_paste_hint'));
+    }
+    function doSelectAll() {
+      ta.focus();
+      try { ta.setSelectionRange(0, ta.value.length); } catch (e) {}
+    }
+
+    self.tools = el('div', { class: 'tools' }, [
+      self.undoBtn, self.redoBtn, sep(),
+      tb('B', t('ed_bold') + ' (Ctrl+B)', wrapper('**'), 'b'),
+      tb('I', t('ed_italic') + ' (Ctrl+I)', wrapper('*'), 'i'),
+      tb('S', t('ed_strike'), wrapper('~~'), 's'),
+      tb('</>', t('ed_code'), wrapper('`')), sep(),
+      tb('H1', t('ed_h1'), head(1)), tb('H2', t('ed_h2'), head(2)), tb('H3', t('ed_h3'), head(3)), sep(),
+      tb('•', t('ed_ul'), lst('ul'), 'bul'), tb('1.', t('ed_ol'), lst('ol')), tb('[ ]', t('ed_task'), lst('task')),
+      tb('“', t('ed_quote'), lst('quote')), tb('—', t('ed_rule'), function () { change(ED.rule(snap())); }), sep(),
+      tb('→', t('ed_indent'), function () { change(ED.indent(snap(), 1)); }),
+      tb('←', t('ed_outdent'), function () { change(ED.indent(snap(), -1)); }), sep(),
+      tb(t('ed_find'), t('ed_find') + ' (Ctrl+F)', function () { if (self.findBar.style.display === 'none') openFind(false); else closeFind(); }, 'txt'),
+      tb(t('ed_selall'), t('ed_selall'), doSelectAll, 'txt'),
+      tb(t('ed_copy'), t('ed_copy'), doCopy, 'txt'),
+      tb(t('ed_cut'), t('ed_cut'), doCut, 'txt'),
+      tb(t('ed_paste'), t('ed_paste'), doPaste, 'txt'), sep(),
+      dirBtn,
+      tb('A−', t('ed_smaller'), function () { size(-2); }),
+      tb('A+', t('ed_bigger'), function () { size(2); }),
+      tb(t('ed_tidy'), t('ed_tidy_tip'), function () {
+        var a = ED.tidy(snap());
+        if (a.v === ta.value) { toast(t('ed_tidy_none')); return; }
+        change(a);
+      }, 'txt')
+    ]);
+
+    // ---- find / replace
+    self.findIn = el('input', { type: 'text', dir: 'auto', placeholder: t('ed_find'), 'aria-label': t('ed_find') });
+    self.replIn = el('input', { type: 'text', dir: 'auto', placeholder: t('ed_replace'), 'aria-label': t('ed_replace') });
+    self.caseBox = el('input', { type: 'checkbox', 'aria-label': t('ed_case') });
+    self.findInfo = el('span', { class: 'muted find-info' });
+    function mc() { return self.caseBox.checked; }
+    function refreshFindInfo() {
+      var q = self.findIn.value;
+      if (!q) { self.findInfo.textContent = ''; return; }
+      var v = ta.value, n = ED.count(v, q, mc());
+      if (!n) { self.findInfo.textContent = t('ed_none'); return; }
+      var a = snap(), sel = v.slice(a.s, a.e);
+      var one = sel === '' ? null : ED.find(sel, q, 0, mc());
+      var isMatch = !!one && one.index === 0 && one.length === sel.length;
+      self.findInfo.textContent = isMatch ? (ED.count(v.slice(0, a.e), q, mc()) + ' / ' + n) : (n + ' ' + t('ed_found'));
+    }
+    function reveal(pos) { // scroll the box so character `pos` is in the middle
+      try { ta.scrollTop = Math.max(0, yOfPos(ta, pos) - ta.clientHeight / 2); } catch (e) {}
+    }
+    function findNext(dir) {
+      var q = self.findIn.value;
+      if (!q) { self.findIn.focus(); return; }
+      var a = snap();
+      var m = ED.find(ta.value, q, dir > 0 ? a.e : a.s, mc(), dir < 0);
+      if (!m) { refreshFindInfo(); return; }
+      ta.focus();
+      try { ta.setSelectionRange(m.index, m.index + m.length); } catch (e) {}
+      reveal(m.index);
+      justFound = true;
+      refreshFindInfo();
+    }
+    function openFind(withReplace) {
+      self.findBar.style.display = '';
+      var a = snap(), sel = ta.value.slice(a.s, a.e);
+      if (sel && sel.indexOf('\n') < 0 && sel.length <= 80) self.findIn.value = sel;
+      refreshFindInfo();
+      var f = withReplace ? self.replIn : self.findIn;
+      f.focus();
+      if (f === self.findIn) { try { f.select(); } catch (e) {} }
+    }
+    function closeFind() { self.findBar.style.display = 'none'; justFound = false; }
+    function doReplace() {
+      var q = self.findIn.value;
+      if (!q) { self.findIn.focus(); return; }
+      var a = ED.replaceOne(snap(), q, self.replIn.value, mc());
+      if (a) change(a);
+      findNext(1);
+    }
+    function doReplaceAll() {
+      var q = self.findIn.value;
+      if (!q) { self.findIn.focus(); return; }
+      var r = ED.replaceAll(snap(), q, self.replIn.value, mc());
+      if (r.n) change(r.st);
+      toast(r.n ? t('ed_replaced').replace('%n', r.n) : t('ed_none'));
+    }
+    self.findIn.addEventListener('input', refreshFindInfo);
+    self.caseBox.addEventListener('change', refreshFindInfo);
+    function findKeys(e) {
+      if (e.key === 'Enter') { e.preventDefault(); if (e.target === self.replIn) doReplace(); else findNext(e.shiftKey ? -1 : 1); }
+      else if (e.key === 'Escape') { closeFind(); try { ta.focus(); } catch (x) {} }
+    }
+    self.findIn.addEventListener('keydown', findKeys);
+    self.replIn.addEventListener('keydown', findKeys);
+    self.findBar = el('div', { class: 'findbar', style: 'display:none' }, [
+      el('div', { class: 'row' }, [
+        el('div', { class: 'grow' }, [self.findIn]),
+        tb('‹', t('ed_prev') + ' (Shift+F3)', function () { findNext(-1); }),
+        tb('›', t('ed_next') + ' (F3)', function () { findNext(1); }),
+        el('label', { class: 'case', title: t('ed_case') }, [self.caseBox, el('span', { text: 'Aa' })]),
+        tb('✕', t('hide'), closeFind)
+      ]),
+      el('div', { class: 'row' }, [
+        el('div', { class: 'grow' }, [self.replIn]),
+        tb(t('ed_rep1'), t('ed_rep1'), doReplace, 'txt'),
+        tb(t('ed_repall'), t('ed_repall'), doReplaceAll, 'txt')
+      ]),
+      self.findInfo
+    ]);
+
     self.preview = el('div', { class: 'preview md', style: 'display:none' });
     self.editBtn = el('button', { text: t('edit'), onclick: function () { self.setPreview(false); } });
     self.prevBtn = el('button', { text: t('preview'), onclick: function () { self.setPreview(true); } });
     self.nameInp = el('input', { type: 'text', dir: 'auto', placeholder: t('file_name'), value: S.name });
     self.filesBox = el('div', { class: 'files' });
+    self.statBox = el('p', { class: 'muted ed-stats' });
 
     // Send and Clear sit ABOVE the text box, so the on-screen keyboard can never cover them.
     function doSend() {
@@ -668,22 +1004,33 @@
       // and the text must be read after that word has been committed
       try { ta.blur(); } catch (e) {}
       setTimeout(function () {
-        self.dirty = false;
-        sendTextConfirmed(ta.value.replace(/\r\n?/g, '\n'), self.nameInp.value.trim() || null);
+        var text = ta.value.replace(/\r\n?/g, '\n');
+        // the draft is only dropped once the hub confirmed it has the text
+        sendTextConfirmed(text, self.nameInp.value.trim() || null, function (ok) {
+          if (!ok) return;
+          if (S.editor && S.editor.text.replace(/\r\n?/g, '\n') === text) { S.editor.dirty = false; saveDraft(); }
+          if (self.ta && self.ta.value.replace(/\r\n?/g, '\n') === text) { self.dirty = false; refreshTools(); }
+        });
       }, 80);
     }
     self.body.appendChild(el('div', { class: 'row' }, [
       el('button', { class: 'primary grow', text: t('send'), onclick: doSend }),
       el('button', { class: 'danger', text: t('clear'), onclick: function () {
         if (ta.value && !window.confirm(t('confirm_clear'))) return;
-        ta.value = ''; self.nameInp.value = ''; self.dirty = false;
+        self.nameInp.value = '';
+        change(ED.state('', 0, 0)); // undoable
+        self.dirty = false;
+        refreshTools();
         if (self.previewMode) self.schedulePreview(0);
         sendTextConfirmed('', null);
       } })
     ]));
     self.body.appendChild(el('div', { class: 'row' }, [self.editBtn, self.prevBtn]));
+    self.body.appendChild(self.tools);
+    self.body.appendChild(self.findBar);
     self.body.appendChild(ta);
     self.body.appendChild(self.preview);
+    self.body.appendChild(self.statBox);
     self.body.appendChild(el('div', { class: 'row' }, [
       el('div', { class: 'grow' }, [self.nameInp]),
       el('button', {
@@ -701,6 +1048,8 @@
     self.body.appendChild(self.filesBox);
     self.setPreview(false);
     self.refreshLibrary();
+    refreshTools();
+    if (restored) toast(t('ed_restored'));
   };
 
   Panel.prototype.refreshLauncher = function () {
@@ -720,6 +1069,8 @@
     this.previewMode = on;
     this.ta.style.display = on ? 'none' : 'block';
     this.preview.style.display = on ? 'block' : 'none';
+    this.tools.style.display = on ? 'none' : '';
+    if (on) this.findBar.style.display = 'none';
     this.editBtn.className = on ? '' : 'primary';
     this.prevBtn.className = on ? 'primary' : '';
     if (on) this.schedulePreview(0);
@@ -769,7 +1120,7 @@
   // called when the session text changes on another device
   Panel.prototype.onSessionText = function () {
     if (this.tab === 'script' && this.ta && !this.dirty) {
-      this.ta.value = S.text;
+      if (this.ta.value !== S.text) this.externalText(S.text);
       if (this.nameInp && document.activeElement !== this.nameInp) this.nameInp.value = S.name;
       if (this.previewMode) this.schedulePreview(0);
     }

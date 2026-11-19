@@ -185,3 +185,20 @@ select { -webkit-appearance: none; -moz-appearance: none; appearance: none; padd
   background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
   background-position: calc(100% - 17px) 50%, calc(100% - 12px) 50%; background-size: 5px 5px, 5px 5px; background-repeat: no-repeat; }
 [dir=rtl] select { background-position: 17px 50%, 12px 50%; }
+
+/* script editor tools */
+.tools { display: flex; flex-wrap: wrap; align-items: center; margin: 2px -2px 4px; }
+.tools .tb, .findbar .tb { min-width: 40px; height: 38px; padding: 0 8px; margin: 2px; font-size: 15px; line-height: 1; }
+.tools .tb.txt, .findbar .tb.txt { font-size: 14px; padding: 0 10px; }
+.tools .tb.b { font-weight: 700; }
+.tools .tb.i { font-style: italic; }
+.tools .tb.s { text-decoration: line-through; }
+.tools .tb svg { vertical-align: middle; }
+.tools .sep { width: 10px; }
+.findbar { margin: 4px 0 8px; padding: 6px; border: 1px solid #33425e; border-radius: 10px; }
+.findbar .row > * { margin: 2px; }
+.findbar .case { display: flex; align-items: center; margin: 2px 6px; font-size: 14px; }
+.findbar .case input { width: 18px; height: 18px; margin: 0 4px; }
+.find-info { display: block; font-size: 13px; margin: 2px 6px; min-height: 1.2em; }
+.ed-stats { font-size: 13px; margin: 2px 4px 8px; }
+.tools .tb.bul { font-size: 22px; }

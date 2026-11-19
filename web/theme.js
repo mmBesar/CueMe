@@ -105,6 +105,7 @@
       '.tabs button.on{border-bottom-color:' + A + ';background:' + c('surface0') + '}',
       '.url{background:' + c('crust') + '}',
       '.preview{background:' + c('crust') + ';color:' + c('text') + '}',
+      '.findbar{border-color:' + c('surface1') + '}',
       '.files .file{border-color:' + c('surface0') + '}',
       '.files .file button.name{background:transparent}',
       '.dot{background:' + c('overlay0') + '}.dot.on{background:' + c('green') + '}.dot.err{background:' + c('red') + '}',

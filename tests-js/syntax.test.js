@@ -3,7 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const acorn = require('acorn');
-for (const f of ['engine.js', 'i18n.js', 'app.js', 'vendor/jsQR.js']) {
+for (const f of ['engine.js', 'i18n.js', 'editor.js', 'app.js', 'vendor/jsQR.js']) {
   test(`${f} is valid ES5`, () => {
     const src = fs.readFileSync(`${__dirname}/../web/${f}`, 'utf8');
     acorn.parse(src, { ecmaVersion: 5 });

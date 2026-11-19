@@ -146,7 +146,7 @@ If a Wi-Fi blocks broadcast (some guest networks), use the QR code or type the a
 - **Jog slider**: push for slow or fast scrolling, let go and it stops.
 
 ### Scripts: where they are saved and how to reload them
-Write or paste text in the **Script** tab (Markdown). **Send to display** shows it, **Clear** empties the script (on the display and in the box), **Save** stores it. Send and Clear sit above the text box, so the phone keyboard never hides them. The **Library** list shows every `.md` / `.txt` file in the display's script folder; tap a name to load it. The folder path is printed under the list. To reload after copying files into the folder by hand, save any script or reopen the Script tab.
+Write or paste text in the **Script** tab (Markdown). **Send to display** shows it, **Clear** empties the script (on the display and in the box), **Save** stores it. Send and Clear sit above the text box, so the phone keyboard never hides them. The **Library** list shows every `.md` / `.txt` file in the display's script folder; tap a name to load it. The folder path is printed under the list. The text box has a toolbar: **undo / redo** (also on phones), bold, italic, strikethrough, code, headings, bullet / numbered / check lists, quote, horizontal line, indent, **find and replace** (Ctrl+F, F3 for the next match), select all, copy, cut, paste, text direction (auto / right-to-left / left-to-right), text size and **Tidy** (removes trailing spaces, invisible characters and extra blank lines). It shows the word count and a rough reading time, and keeps your unsent text if you switch tabs or restart the app. To reload after copying files into the folder by hand, save any script or reopen the Script tab.
 
 | Where | Script folder |
 |---|---|
