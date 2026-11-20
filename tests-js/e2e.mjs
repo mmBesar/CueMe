@@ -642,7 +642,11 @@ await T('script editor: formatting tools, undo / redo, find / replace, tidy, dir
   await dirBtn.click();
   assert.equal(await ta.getAttribute('dir'), 'ltr');
   await dirBtn.click();
-  assert.equal(await ta.getAttribute('dir'), 'auto');
+  assert.equal((await dirBtn.textContent()).trim(), 'Auto');
+  assert.equal(await ta.getAttribute('dir'), 'ltr', 'Auto: English text, left-to-right base');
+  await ta.fill('مرحبا بكم في القناة\n');
+  assert.equal(await ta.getAttribute('dir'), 'rtl', 'Auto: Arabic text gives an RTL base, so an empty new line keeps the cursor on the right');
+  await ta.fill('a\n\nb');
   // Clear can be undone
   await ta.fill('keep me');
   R.once('dialog', (d) => d.accept());

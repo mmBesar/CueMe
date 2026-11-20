@@ -747,6 +747,7 @@
       S.editor = { key: dk, text: ta.value, dirty: self.dirty, hist: hist };
       clearTimeout(draftTimer);
       draftTimer = setTimeout(saveDraft, 400);
+      if (dirMode === 'auto' && ta.getAttribute('dir') !== autoBase()) applyDir('auto');
       self.undoBtn.disabled = !hist.canUndo();
       self.redoBtn.disabled = !hist.canRedo();
       if (self.findBar.style.display !== 'none') refreshFindInfo();
@@ -830,9 +831,18 @@
     self.undoBtn = tb(SVG_UNDO, t('ed_undo') + ' (Ctrl+Z)', undo);
     self.redoBtn = tb(SVG_REDO, t('ed_redo') + ' (Ctrl+Y)', redo);
     var dirBtn;
+    // Auto: every line still picks its own direction from its first letter (unicode-bidi: plaintext),
+    // but an EMPTY line (just after Enter) has no letter, so it follows the box's base direction.
+    // That base is the script most of the text is written in, so the cursor stays on the Arabic side.
+    function autoBase() {
+      var v = ta.value, ar = (v.match(/[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFC]/g) || []).length,
+        la = (v.match(/[A-Za-z]/g) || []).length;
+      if (!ar && !la) return document.documentElement.dir === 'rtl' ? 'rtl' : 'ltr';
+      return ar >= la ? 'rtl' : 'ltr';
+    }
     function applyDir(mode) {
-      ta.setAttribute('dir', mode);
-      ta.style.unicodeBidi = mode === 'auto' ? '' : 'normal';
+      ta.setAttribute('dir', mode === 'auto' ? autoBase() : mode);
+      ta.style.unicodeBidi = mode === 'auto' ? 'plaintext' : 'normal';
       dirBtn.textContent = mode === 'auto' ? t('ed_dir_auto') : mode.toUpperCase();
     }
     var dirMode = lsGet('cueme_ed_dir', 'auto');
