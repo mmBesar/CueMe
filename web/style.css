@@ -202,3 +202,10 @@ select { -webkit-appearance: none; -moz-appearance: none; appearance: none; padd
 .find-info { display: block; font-size: 13px; margin: 2px 6px; min-height: 1.2em; }
 .ed-stats { font-size: 13px; margin: 2px 4px 8px; }
 .tools .tb.bul { font-size: 22px; }
+
+/* big script editor: fills the screen, same for the local and the remote panel */
+.ed-big { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 60; display: flex; flex-direction: column;
+  padding: 8px 10px; overflow: auto; box-sizing: border-box; }
+.ed-big > h3, .ed-big > .files, .ed-big > .muted:not(.ed-stats) { display: none; }
+.ed-big > textarea { flex: 1 1 auto; min-height: 120px; height: auto; resize: none; }
+.ed-big > .preview { flex: 1 1 auto; overflow: auto; }

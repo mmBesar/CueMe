@@ -674,6 +674,25 @@ await T('script editor: unsent text and undo survive a tab switch; the draft is 
   assert.doesNotMatch(await R.locator('.ed-stats').textContent(), /not sent yet/);
 });
 
+await T('big script editor: fills the screen, Esc goes back, text is kept', async () => {
+  const ta = R.locator('textarea');
+  await ta.fill('big editor text');
+  const small = (await ta.boundingBox()).height;
+  await R.locator('button.bigbtn').click();
+  const vp = R.viewportSize();
+  const box = await ta.boundingBox();
+  assert.ok(box.height > small && box.height > vp.height * 0.5, 'textarea grew: ' + box.height + ' vs ' + small);
+  assert.equal(await R.locator('.tools').isVisible(), true);
+  assert.equal(await R.locator('button.bigbtn').textContent(), 'Back');
+  await ta.click();
+  await R.keyboard.press('Escape');
+  assert.equal(await R.locator('.ed-big').count(), 0, 'Esc leaves the big editor');
+  assert.equal(await R.locator('textarea').inputValue(), 'big editor text');
+  await R.locator('button.bigbtn').click();
+  await R.locator('button.bigbtn').click();
+  assert.equal(await R.locator('.ed-big').count(), 0, 'the button toggles back');
+});
+
 await T('no JavaScript errors on any page', async () => { assert.deepEqual(errors, []); });
 
 await browser.close();

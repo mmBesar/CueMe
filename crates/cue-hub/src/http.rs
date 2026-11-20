@@ -361,11 +361,10 @@ async fn static_file(uri: Uri) -> Response {
     match Assets::get(p) {
         Some(f) => {
             let mime = mime_for(p);
-            let cache = if p == "index.html" {
-                "no-cache"
-            } else {
-                "public, max-age=3600"
-            };
+            // Assets are embedded in the binary and change with every
+            // release, so always revalidate (a stale cached UI in the
+            // desktop window is worse than a few extra local requests).
+            let cache = "no-store";
             Response::builder()
                 .header(header::CONTENT_TYPE, mime)
                 .header(header::CACHE_CONTROL, cache)

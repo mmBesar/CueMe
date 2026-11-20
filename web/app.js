@@ -713,10 +713,6 @@
     if (!e) return;
     if (e.dirty && e.text.length < 1000000) lsSet(e.key, e.text); else lsRemove(e.key);
   }
-  function fmtTime(sec) {
-    var m = Math.floor(sec / 60), r = sec % 60;
-    return m + ':' + (r < 10 ? '0' : '') + r;
-  }
 
   Panel.prototype.buildScript = function () {
     var self = this;
@@ -1025,7 +1021,30 @@
         sendTextConfirmed('', null);
       } })
     ]));
-    self.body.appendChild(el('div', { class: 'row' }, [self.editBtn, self.prevBtn]));
+    // Big editor: the whole script area fills the screen; Esc or the same button goes back.
+    self.bigBtn = el('button', { type: 'button', class: 'bigbtn', text: t('ed_big'), title: t('ed_big') });
+    function setBig(on) {
+      var b = self.body;
+      if (on) {
+        var bg = '';
+        try { bg = window.getComputedStyle(document.getElementById('panel')).backgroundColor; } catch (e) {}
+        if (!bg || bg === 'transparent' || bg === 'rgba(0, 0, 0, 0)') bg = '#0e1626';
+        b.style.background = bg;
+        b.className += ' ed-big';
+      } else {
+        b.style.background = '';
+        b.className = b.className.replace(/\s*\bed-big\b/g, '');
+      }
+      self.big = !!on;
+      self.bigBtn.textContent = t(on ? 'ed_small' : 'ed_big');
+      self.bigBtn.title = self.bigBtn.textContent;
+    }
+    self.setBig = setBig;
+    self.bigBtn.addEventListener('click', function () { setBig(!self.big); });
+    self.body.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && self.big && self.findBar.style.display === 'none') { e.stopPropagation(); setBig(false); }
+    });
+    self.body.appendChild(el('div', { class: 'row' }, [self.editBtn, self.prevBtn, self.bigBtn]));
     self.body.appendChild(self.tools);
     self.body.appendChild(self.findBar);
     self.body.appendChild(ta);
